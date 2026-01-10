@@ -1,10 +1,8 @@
 package com.microsoft.graphrag.index
 
-import dev.langchain4j.data.message.UserMessage
 import dev.langchain4j.model.openai.OpenAiChatModel
+import dev.langchain4j.service.AiServices
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.json.Json
 
 class ClaimsWorkflow(
     private val chatModel: OpenAiChatModel,
@@ -13,41 +11,48 @@ class ClaimsWorkflow(
     fun extractClaims(
         chunks: List<DocumentChunk>,
         entitySpecs: String = "ORGANIZATION,PERSON,GPE",
-        claimDescription: String = "red flags associated with an entity",
+        claimDescription: String = "Any claims or facts that could be relevant to information discovery.",
     ): List<Claim> {
         val claims = mutableListOf<Claim>()
+        val tupleDelimiter = "<|>"
+        val recordDelimiter = "##"
+        val completionDelimiter = "<|COMPLETE|>"
         for (chunk in chunks) {
             val prompt =
                 prompts
                     .loadExtractClaimsPrompt()
                     .replace("{entity_specs}", entitySpecs)
                     .replace("{claim_description}", claimDescription)
-                    .replace("{tuple_delimiter}", "|")
-                    .replace("{record_delimiter}", "\n")
-                    .replace("{completion_delimiter}", "__COMPLETE__")
+                    .replace("{tuple_delimiter}", tupleDelimiter)
+                    .replace("{record_delimiter}", recordDelimiter)
+                    .replace("{completion_delimiter}", completionDelimiter)
                     .replace("{input_text}", chunk.text)
-            val message = UserMessage.from(prompt)
-            val method =
-                chatModel.javaClass.methods.firstOrNull { it.name == "generate" && it.parameterTypes.size == 1 }
-            val result = method?.invoke(chatModel, listOf(message))
-            val content =
-                when (result) {
-                    is dev.langchain4j.data.message.AiMessage -> result.text()
-                    is dev.langchain4j.model.output.Response<*> -> result.content().toString()
-                    else -> result?.toString() ?: ""
-                }
-            claims += parseClaims(content)
+            val content = extractor.chat(prompt)
+            println("Claims raw response for chunk ${chunk.id}:\n$content")
+            claims += parseClaims(content, tupleDelimiter, recordDelimiter, completionDelimiter)
         }
         return claims
     }
 
-    private fun parseClaims(content: String): List<Claim> {
-        // naive parse: split by record delimiter and tuple delimiter
-        val records = content.split("\n").map { it.trim() }.filter { it.startsWith("(") && it.endsWith(")") }
+    private fun parseClaims(
+        content: String,
+        tupleDelimiter: String,
+        recordDelimiter: String,
+        completionDelimiter: String,
+    ): List<Claim> {
+        val cleaned =
+            content
+                .replace(completionDelimiter, "")
+                .trim()
+        val records =
+            cleaned
+                .split(recordDelimiter)
+                .map { it.trim() }
+                .filter { it.startsWith("(") && it.endsWith(")") }
         val claims = mutableListOf<Claim>()
         for (rec in records) {
             val body = rec.removePrefix("(").removeSuffix(")")
-            val parts = body.split("|")
+            val parts = body.split(tupleDelimiter)
             if (parts.size >= 8) {
                 claims.add(
                     Claim(
@@ -64,5 +69,17 @@ class ClaimsWorkflow(
             }
         }
         return claims
+    }
+
+    private val extractor =
+        AiServices.create(Extractor::class.java, chatModel)
+
+    private interface Extractor {
+        @dev.langchain4j.service.SystemMessage(
+            "You are an intelligent assistant that helps a human analyst to analyze claims against certain entities presented in a text document.",
+        )
+        fun chat(
+            @dev.langchain4j.service.UserMessage userMessage: String,
+        ): String
     }
 }

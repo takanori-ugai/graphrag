@@ -1,6 +1,5 @@
 package com.microsoft.graphrag.index
 
-import dev.langchain4j.data.embedding.Embedding
 import dev.langchain4j.model.embedding.EmbeddingModel
 import dev.langchain4j.model.openai.OpenAiEmbeddingModel
 import dev.langchain4j.model.output.Response
@@ -26,25 +25,17 @@ class EmbedWorkflow(
             }
         }
 
-    private fun embed(text: String): List<Double>? {
-        val method =
-            embeddingModel.javaClass.methods.firstOrNull { it.name == "embed" && it.parameterTypes.size == 1 }
-        val response = method?.invoke(embeddingModel, text)
-        return when (response) {
-            is Response<*> -> {
-                val content = response.content()
-                if (content is Embedding) {
-                    content.vector().asList().map { it.toDouble() }
-                } else {
-                    null
-                }
-            }
-
-            else -> {
-                null
-            }
+    private fun embed(text: String): List<Double>? =
+        try {
+            val resp: Response<dev.langchain4j.data.embedding.Embedding> = embeddingModel.embed(text)
+            resp
+                .content()
+                ?.vector()
+                ?.asList()
+                ?.map { it.toDouble() }
+        } catch (_: Exception) {
+            null
         }
-    }
 }
 
 fun defaultEmbeddingModel(apiKey: String): EmbeddingModel =

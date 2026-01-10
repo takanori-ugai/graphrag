@@ -40,9 +40,10 @@ class DocumentChunker(
                     text = slice,
                 ),
             )
-            start = end - overlap
-            if (start < 0) start = 0
-            if (start >= normalized.length) break
+            if (end == normalized.length) {
+                break
+            }
+            start += chunkSize - overlap
         }
         return result
     }
