@@ -12,6 +12,8 @@ fun defaultPipeline(): Pipeline =
         listOf(
             "load_input_documents" to ::loadInputDocuments,
             "extract_graph" to ::extractGraph,
+            "extract_claims" to ::extractClaims,
+            "summarize_descriptions" to ::summarizeDescriptions,
             "embed_text" to ::embedText,
             "embed_graph" to ::embedGraph,
             "build_graph" to ::buildGraph,
@@ -28,6 +30,7 @@ private suspend fun loadInputDocuments(
     val chunker = DocumentChunker()
     val chunks = chunker.loadAndChunk(config.inputDir)
     context.state["chunks"] = chunks
+    context.state["text_units"] = chunker.toTextUnits(chunks)
     context.outputStorage.set("documents_loaded.txt", "Loaded ${chunks.size} chunks at ${Instant.now()}")
     return WorkflowResult(result = "documents")
 }
@@ -55,6 +58,29 @@ private suspend fun extractGraph(
         "Extracted ${result.entities.size} entities and ${result.relationships.size} relationships at ${Instant.now()}",
     )
     return WorkflowResult(result = "graph")
+}
+
+@Suppress("UnusedParameter")
+private suspend fun extractClaims(
+    config: GraphRagConfig,
+    context: PipelineRunContext,
+): WorkflowResult {
+    val chunks = context.state["chunks"] as? List<DocumentChunk> ?: emptyList()
+    val apiKey = System.getenv("OPENAI_API_KEY") ?: ""
+    val chatModel =
+        OpenAiChatModel
+            .builder()
+            .apiKey(apiKey)
+            .modelName("gpt-4o-mini")
+            .build()
+    val claimsWorkflow = ClaimsWorkflow(chatModel)
+    val claims = claimsWorkflow.extractClaims(chunks)
+    context.state["claims"] = claims
+    context.outputStorage.set(
+        "claims_extracted.txt",
+        "Extracted ${claims.size} claims at ${Instant.now()}",
+    )
+    return WorkflowResult(result = "claims")
 }
 
 @Suppress("UnusedParameter")
@@ -92,6 +118,29 @@ private suspend fun embedGraph(
 }
 
 @Suppress("UnusedParameter")
+private suspend fun summarizeDescriptions(
+    config: GraphRagConfig,
+    context: PipelineRunContext,
+): WorkflowResult {
+    val entities = context.state["entities"] as? List<Entity> ?: emptyList()
+    val apiKey = System.getenv("OPENAI_API_KEY") ?: ""
+    val chatModel =
+        OpenAiChatModel
+            .builder()
+            .apiKey(apiKey)
+            .modelName("gpt-4o-mini")
+            .build()
+    val summarizer = SummarizeDescriptionsWorkflow(chatModel)
+    val summaries = summarizer.summarize(entities)
+    context.state["entity_summaries"] = summaries
+    context.outputStorage.set(
+        "entity_summaries.txt",
+        "Summarized ${summaries.size} entities at ${Instant.now()}",
+    )
+    return WorkflowResult(result = "entity_summaries")
+}
+
+@Suppress("UnusedParameter")
 private suspend fun buildGraph(
     config: GraphRagConfig,
     context: PipelineRunContext,
@@ -124,6 +173,9 @@ private suspend fun writeOutputs(
     val communities = context.state["communities"] as? List<CommunityAssignment> ?: emptyList()
     writer.writeCommunityAssignments(config.outputDir.resolve("communities.parquet"), communities)
     val reports = context.state["community_reports"] as? List<CommunityReport> ?: emptyList()
+    val claims = context.state["claims"] as? List<Claim> ?: emptyList()
+    val textUnits = context.state["text_units"] as? List<TextUnit> ?: emptyList()
+    val summaries = context.state["entity_summaries"] as? List<EntitySummary> ?: emptyList()
     val reportsJson =
         kotlinx.serialization.json
             .Json { prettyPrint = true }
@@ -137,6 +189,11 @@ private suspend fun writeOutputs(
         java.nio.file.Files
             .writeString(this, reportsJson)
     }
+    writer.writeTextUnits(config.outputDir.resolve("text_units.parquet"), textUnits)
+    writer.writeEntitySummaries(config.outputDir.resolve("entity_summaries.parquet"), summaries)
+    writer.writeClaims(config.outputDir.resolve("claims.parquet"), claims)
+    val vectorStore = LocalVectorStore(config.outputDir.resolve("vector_store.json"))
+    vectorStore.save(textEmbeddings, entityEmbeddings)
     context.outputStorage.set("outputs_written.txt", "Parquet written at ${Instant.now()}")
     return WorkflowResult(result = "outputs_written")
 }
@@ -165,6 +222,7 @@ private suspend fun communityReports(
 ): WorkflowResult {
     val communities = context.state["communities"] as? List<CommunityAssignment> ?: emptyList()
     val entities = context.state["entities"] as? List<Entity> ?: emptyList()
+    val relationships = context.state["relationships"] as? List<Relationship> ?: emptyList()
     val apiKey = System.getenv("OPENAI_API_KEY") ?: ""
     val chatModel =
         OpenAiChatModel
@@ -173,7 +231,7 @@ private suspend fun communityReports(
             .modelName("gpt-4o-mini")
             .build()
     val reporter = CommunityReportWorkflow(chatModel)
-    val reports = reporter.generateReports(communities, entities)
+    val reports = reporter.generateReports(communities, entities, relationships)
     context.state["community_reports"] = reports
     context.outputStorage.set(
         "community_reports.txt",

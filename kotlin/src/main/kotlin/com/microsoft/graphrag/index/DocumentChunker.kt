@@ -46,4 +46,14 @@ class DocumentChunker(
         }
         return result
     }
+
+    fun toTextUnits(chunks: List<DocumentChunk>): List<TextUnit> =
+        chunks.map { chunk ->
+            TextUnit(
+                id = "tu-${chunk.id}",
+                chunkId = chunk.id,
+                text = chunk.text,
+                sourcePath = chunk.sourcePath,
+            )
+        }
 }

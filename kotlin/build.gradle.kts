@@ -24,6 +24,7 @@ val javafxVersion = "21.0.5"
 val jgraphtVersion = "1.5.2"
 val parquetVersion = "1.13.1"
 val networkAnalysisVersion = "1.3.0"
+val smileVersion = "4.4.0"
 val osName = System.getProperty("os.name").lowercase()
 val archName = System.getProperty("os.arch").lowercase()
 val javafxPlatform =
@@ -65,10 +66,11 @@ dependencies {
     implementation("io.github.oshai:kotlin-logging-jvm:5.1.0")
     implementation("com.auth0:java-jwt:4.5.0")
     implementation("org.jgrapht:jgrapht-core:$jgraphtVersion")
-    implementation("org.apache.parquet:parquet-avro:$parquetVersion")
-    implementation("org.apache.parquet:parquet-hadoop:$parquetVersion")
+    implementation("blue.strategic.parquet:parquet-floor:1.51")
     implementation("dev.langchain4j:langchain4j-open-ai:1.9.1")
     implementation("nl.cwts:networkanalysis:$networkAnalysisVersion")
+    implementation("com.github.haifengl:smile-base:$smileVersion")
+    implementation("com.github.haifengl:smile-core:$smileVersion")
 
     // Koin for Ktor
     implementation("io.insert-koin:koin-ktor:$koinVersion")

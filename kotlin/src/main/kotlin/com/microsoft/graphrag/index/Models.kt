@@ -26,16 +26,19 @@ data class Relationship(
     val sourceChunkId: String,
 )
 
+@kotlinx.serialization.Serializable
 data class TextEmbedding(
     val chunkId: String,
     val vector: List<Double>,
 )
 
+@kotlinx.serialization.Serializable
 data class EntityEmbedding(
     val entityId: String,
     val vector: List<Double>,
 )
 
+@kotlinx.serialization.Serializable
 data class CommunityAssignment(
     val entityId: String,
     val communityId: Int,
@@ -44,6 +47,32 @@ data class CommunityAssignment(
 @kotlinx.serialization.Serializable
 data class CommunityReport(
     val communityId: Int,
+    val summary: String,
+)
+
+@kotlinx.serialization.Serializable
+data class Claim(
+    val subject: String,
+    val `object`: String,
+    val claimType: String,
+    val status: String,
+    val startDate: String,
+    val endDate: String,
+    val description: String,
+    val sourceText: String,
+)
+
+@kotlinx.serialization.Serializable
+data class TextUnit(
+    val id: String,
+    val chunkId: String,
+    val text: String,
+    val sourcePath: String,
+)
+
+@kotlinx.serialization.Serializable
+data class EntitySummary(
+    val entityId: String,
     val summary: String,
 )
 

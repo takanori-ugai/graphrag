@@ -1,268 +1,202 @@
 package com.microsoft.graphrag.index
 
-import org.apache.avro.Schema
-import org.apache.avro.SchemaBuilder
-import org.apache.avro.generic.GenericData
-import org.apache.parquet.avro.AvroParquetWriter
-import org.apache.parquet.hadoop.metadata.CompressionCodecName
-import org.apache.parquet.io.OutputFile
-import org.apache.parquet.io.PositionOutputStream
+import blue.strategic.parquet.Dehydrator
+import blue.strategic.parquet.ParquetWriter
+import blue.strategic.parquet.ValueWriter
+import org.apache.parquet.schema.LogicalTypeAnnotation
+import org.apache.parquet.schema.MessageType
+import org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName
+import org.apache.parquet.schema.Types
+import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
 
 class ParquetWriterHelper {
-    private val entitySchema: Schema =
-        SchemaBuilder
-            .record("Entity")
-            .fields()
-            .name("id")
-            .type()
-            .stringType()
-            .noDefault()
-            .name("name")
-            .type()
-            .stringType()
-            .noDefault()
-            .name("type")
-            .type()
-            .stringType()
-            .noDefault()
-            .name("sourceChunkId")
-            .type()
-            .stringType()
-            .noDefault()
-            .endRecord()
-
-    private val relationshipSchema: Schema =
-        SchemaBuilder
-            .record("Relationship")
-            .fields()
-            .name("sourceId")
-            .type()
-            .stringType()
-            .noDefault()
-            .name("targetId")
-            .type()
-            .stringType()
-            .noDefault()
-            .name("type")
-            .type()
-            .stringType()
-            .noDefault()
-            .name("description")
-            .type()
-            .nullable()
-            .stringType()
-            .noDefault()
-            .name("sourceChunkId")
-            .type()
-            .stringType()
-            .noDefault()
-            .endRecord()
-
-    private val textEmbeddingSchema: Schema =
-        SchemaBuilder
-            .record("TextEmbedding")
-            .fields()
-            .name("chunkId")
-            .type()
-            .stringType()
-            .noDefault()
-            .name("vector")
-            .type()
-            .array()
-            .items()
-            .doubleType()
-            .noDefault()
-            .endRecord()
-
-    private val entityEmbeddingSchema: Schema =
-        SchemaBuilder
-            .record("EntityEmbedding")
-            .fields()
-            .name("entityId")
-            .type()
-            .stringType()
-            .noDefault()
-            .name("vector")
-            .type()
-            .array()
-            .items()
-            .doubleType()
-            .noDefault()
-            .endRecord()
-
-    private val communityAssignmentSchema: Schema =
-        SchemaBuilder
-            .record("CommunityAssignment")
-            .fields()
-            .name("entityId")
-            .type()
-            .stringType()
-            .noDefault()
-            .name("communityId")
-            .type()
-            .intType()
-            .noDefault()
-            .endRecord()
-
     fun writeEntities(
         path: Path,
         entities: List<Entity>,
     ) {
-        ensureParent(path)
-        AvroParquetWriter
-            .builder<GenericData.Record>(LocalOutputFile(path))
-            .withSchema(entitySchema)
-            .withCompressionCodec(CompressionCodecName.SNAPPY)
-            .build()
-            .use { writer ->
-                entities.forEach { entity ->
-                    writer.write(
-                        GenericData.Record(entitySchema).apply {
-                            put("id", entity.id)
-                            put("name", entity.name)
-                            put("type", entity.type)
-                            put("sourceChunkId", entity.sourceChunkId)
-                        },
-                    )
-                }
+        val schema =
+            message("Entity") {
+                addField(requiredString("id"))
+                addField(requiredString("name"))
+                addField(requiredString("type"))
+                addField(requiredString("sourceChunkId"))
             }
+        write(path, schema, entities) { e, w ->
+            w.write("id", e.id)
+            w.write("name", e.name)
+            w.write("type", e.type)
+            w.write("sourceChunkId", e.sourceChunkId)
+        }
     }
 
     fun writeRelationships(
         path: Path,
         relationships: List<Relationship>,
     ) {
-        ensureParent(path)
-        AvroParquetWriter
-            .builder<GenericData.Record>(LocalOutputFile(path))
-            .withSchema(relationshipSchema)
-            .withCompressionCodec(CompressionCodecName.SNAPPY)
-            .build()
-            .use { writer ->
-                relationships.forEach { rel ->
-                    writer.write(
-                        GenericData.Record(relationshipSchema).apply {
-                            put("sourceId", rel.sourceId)
-                            put("targetId", rel.targetId)
-                            put("type", rel.type)
-                            put("description", rel.description)
-                            put("sourceChunkId", rel.sourceChunkId)
-                        },
-                    )
-                }
+        val schema =
+            message("Relationship") {
+                addField(requiredString("sourceId"))
+                addField(requiredString("targetId"))
+                addField(requiredString("type"))
+                addField(optionalString("description"))
+                addField(requiredString("sourceChunkId"))
             }
+        write(path, schema, relationships) { r, w ->
+            w.write("sourceId", r.sourceId)
+            w.write("targetId", r.targetId)
+            w.write("type", r.type)
+            w.write("description", r.description ?: "")
+            w.write("sourceChunkId", r.sourceChunkId)
+        }
     }
 
     fun writeTextEmbeddings(
         path: Path,
         embeddings: List<TextEmbedding>,
     ) {
-        ensureParent(path)
-        AvroParquetWriter
-            .builder<GenericData.Record>(LocalOutputFile(path))
-            .withSchema(textEmbeddingSchema)
-            .withCompressionCodec(CompressionCodecName.SNAPPY)
-            .build()
-            .use { writer ->
-                embeddings.forEach { emb ->
-                    writer.write(
-                        GenericData.Record(textEmbeddingSchema).apply {
-                            put("chunkId", emb.chunkId)
-                            put("vector", emb.vector)
-                        },
-                    )
-                }
+        val schema =
+            message("TextEmbedding") {
+                addField(requiredString("chunkId"))
+                addField(repeatedDouble("vector"))
             }
+        write(path, schema, embeddings) { e, w ->
+            w.write("chunkId", e.chunkId)
+            e.vector.forEach { v -> w.write("vector", v) }
+        }
     }
 
     fun writeEntityEmbeddings(
         path: Path,
         embeddings: List<EntityEmbedding>,
     ) {
-        ensureParent(path)
-        AvroParquetWriter
-            .builder<GenericData.Record>(LocalOutputFile(path))
-            .withSchema(entityEmbeddingSchema)
-            .withCompressionCodec(CompressionCodecName.SNAPPY)
-            .build()
-            .use { writer ->
-                embeddings.forEach { emb ->
-                    writer.write(
-                        GenericData.Record(entityEmbeddingSchema).apply {
-                            put("entityId", emb.entityId)
-                            put("vector", emb.vector)
-                        },
-                    )
-                }
+        val schema =
+            message("EntityEmbedding") {
+                addField(requiredString("entityId"))
+                addField(repeatedDouble("vector"))
             }
+        write(path, schema, embeddings) { e, w ->
+            w.write("entityId", e.entityId)
+            e.vector.forEach { v -> w.write("vector", v) }
+        }
     }
 
     fun writeCommunityAssignments(
         path: Path,
         assignments: List<CommunityAssignment>,
     ) {
-        ensureParent(path)
-        AvroParquetWriter
-            .builder<GenericData.Record>(LocalOutputFile(path))
-            .withSchema(communityAssignmentSchema)
-            .withCompressionCodec(CompressionCodecName.SNAPPY)
-            .build()
-            .use { writer ->
-                assignments.forEach { assignment ->
-                    writer.write(
-                        GenericData.Record(communityAssignmentSchema).apply {
-                            put("entityId", assignment.entityId)
-                            put("communityId", assignment.communityId)
-                        },
-                    )
-                }
+        val schema =
+            message("CommunityAssignment") {
+                addField(requiredString("entityId"))
+                addField(requiredInt("communityId"))
             }
+        write(path, schema, assignments) { c, w ->
+            w.write("entityId", c.entityId)
+            w.write("communityId", c.communityId)
+        }
+    }
+
+    fun writeClaims(
+        path: Path,
+        claims: List<Claim>,
+    ) {
+        val schema =
+            message("Claim") {
+                addField(requiredString("subject"))
+                addField(requiredString("object"))
+                addField(requiredString("claimType"))
+                addField(requiredString("status"))
+                addField(requiredString("startDate"))
+                addField(requiredString("endDate"))
+                addField(requiredString("description"))
+                addField(requiredString("sourceText"))
+            }
+        write(path, schema, claims) { c, w ->
+            w.write("subject", c.subject)
+            w.write("object", c.`object`)
+            w.write("claimType", c.claimType)
+            w.write("status", c.status)
+            w.write("startDate", c.startDate)
+            w.write("endDate", c.endDate)
+            w.write("description", c.description)
+            w.write("sourceText", c.sourceText)
+        }
+    }
+
+    fun writeTextUnits(
+        path: Path,
+        textUnits: List<TextUnit>,
+    ) {
+        val schema =
+            message("TextUnit") {
+                addField(requiredString("id"))
+                addField(requiredString("chunkId"))
+                addField(requiredString("text"))
+                addField(requiredString("sourcePath"))
+            }
+        write(path, schema, textUnits) { t, w ->
+            w.write("id", t.id)
+            w.write("chunkId", t.chunkId)
+            w.write("text", t.text)
+            w.write("sourcePath", t.sourcePath)
+        }
+    }
+
+    fun writeEntitySummaries(
+        path: Path,
+        summaries: List<EntitySummary>,
+    ) {
+        val schema =
+            message("EntitySummary") {
+                addField(requiredString("entityId"))
+                addField(requiredString("summary"))
+            }
+        write(path, schema, summaries) { s, w ->
+            w.write("entityId", s.entityId)
+            w.write("summary", s.summary)
+        }
+    }
+
+    private fun requiredString(name: String) = Types.required(PrimitiveTypeName.BINARY).`as`(LogicalTypeAnnotation.stringType()).named(name)
+
+    private fun optionalString(name: String) = Types.optional(PrimitiveTypeName.BINARY).`as`(LogicalTypeAnnotation.stringType()).named(name)
+
+    private fun repeatedDouble(name: String) = Types.repeated(PrimitiveTypeName.DOUBLE).named(name)
+
+    private fun requiredInt(name: String) = Types.required(PrimitiveTypeName.INT32).named(name)
+
+    private fun message(
+        name: String,
+        build: Types.MessageTypeBuilder.() -> Unit,
+    ): MessageType {
+        val builder = Types.buildMessage()
+        build(builder)
+        return builder.named(name)
+    }
+
+    private fun <T> write(
+        path: Path,
+        schema: MessageType,
+        records: List<T>,
+        dehydrator: (T, ValueWriter) -> Unit,
+    ) {
+        ensureParent(path)
+        val pw =
+            ParquetWriter.writeFile(
+                schema,
+                File(path.toString()),
+                Dehydrator<T> { record, valueWriter ->
+                    dehydrator(record, valueWriter)
+                },
+            )
+        pw.use { writer -> records.forEach { writer.write(it) } }
     }
 
     private fun ensureParent(path: Path) {
-        val parent = path.parent
-        if (parent != null && !Files.exists(parent)) {
+        val parent = path.parent ?: return
+        if (!Files.exists(parent)) {
             Files.createDirectories(parent)
         }
     }
-}
-
-private class LocalOutputFile(
-    private val path: Path,
-) : OutputFile {
-    override fun create(blockSizeHint: Long): PositionOutputStream = newStream()
-
-    override fun createOrOverwrite(blockSizeHint: Long): PositionOutputStream = newStream()
-
-    override fun supportsBlockSize(): Boolean = false
-
-    override fun defaultBlockSize(): Long = 0
-
-    private fun newStream(): PositionOutputStream =
-        object : PositionOutputStream() {
-            private val channel = Files.newOutputStream(path)
-            private var position: Long = 0
-
-            override fun getPos(): Long = position
-
-            override fun write(b: Int) {
-                channel.write(byteArrayOf(b.toByte()))
-                position += 1
-            }
-
-            override fun write(
-                b: ByteArray,
-                off: Int,
-                len: Int,
-            ) {
-                channel.write(b, off, len)
-                position += len.toLong()
-            }
-
-            override fun close() {
-                channel.close()
-            }
-        }
 }

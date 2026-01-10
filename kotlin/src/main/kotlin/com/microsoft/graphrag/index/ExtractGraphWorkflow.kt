@@ -9,6 +9,7 @@ import java.util.UUID
 
 class ExtractGraphWorkflow(
     private val chatModel: OpenAiChatModel,
+    private val prompts: PromptRepository = PromptRepository(),
 ) {
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -41,14 +42,13 @@ class ExtractGraphWorkflow(
     }
 
     private fun buildPrompt(chunk: DocumentChunk): String =
-        """
-        Extract entities and relationships from the following text. 
-        Return JSON with fields "entities" and "relationships".
-        Entities: [{ "id": string, "name": string, "type": string }]
-        Relationships: [{ "sourceId": string, "targetId": string, "type": string, "description": string }]
-        Text:
-        ${chunk.text}
-        """.trimIndent()
+        prompts
+            .loadExtractGraphPrompt()
+            .replace("{entity_types}", "ORGANIZATION,PERSON,GPE,LOCATION")
+            .replace("{tuple_delimiter}", "|")
+            .replace("{record_delimiter}", "\n")
+            .replace("{completion_delimiter}", "__COMPLETE__")
+            .replace("{input_text}", chunk.text)
 
     private fun parseResponse(content: String): GraphExtractResult =
         try {
