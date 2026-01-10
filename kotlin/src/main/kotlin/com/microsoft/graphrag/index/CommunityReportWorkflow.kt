@@ -60,9 +60,13 @@ class CommunityReportWorkflow(
         subReports: List<CommunityReport>,
     ): String {
         val mapSummaries = mapStage(communityId, entities, relationships, textUnits, claims)
-        if (mapSummaries.isEmpty()) return "No context available for this community."
-        if (mapSummaries.size == 1) return mapSummaries.first()
-        return reduceStage(communityId, mapSummaries, entities, relationships, claims, subReports)
+        if (mapSummaries.isEmpty()) return buildFallbackSummary(communityId, entities, relationships, claims)
+        if (mapSummaries.size == 1) {
+            val summary = mapSummaries.first().trim()
+            return summary.ifBlank { buildFallbackSummary(communityId, entities, relationships, claims) }
+        }
+        val reduced = reduceStage(communityId, mapSummaries, entities, relationships, claims, subReports).trim()
+        return reduced.ifBlank { buildFallbackSummary(communityId, entities, relationships, claims) }
     }
 
     private fun buildEntitiesTable(entities: List<Entity>): String =
@@ -174,6 +178,54 @@ class CommunityReportWorkflow(
         return runPrompt(contextText, maxLength = 300)
     }
 
+    private fun buildFallbackSummary(
+        communityId: Int,
+        entities: List<Entity>,
+        relationships: List<Relationship>,
+        claims: List<Claim>,
+    ): String {
+        val title = "Community $communityId: ${entities.joinToString { it.name }}"
+        val summary =
+            buildString {
+                append("Entities: ")
+                append(entities.joinToString { "${it.name} (${it.type})" })
+                if (relationships.isNotEmpty()) {
+                    append(". Relationships: ")
+                    append(relationships.joinToString { "${it.sourceId} -> ${it.targetId} (${it.type})" })
+                }
+                if (claims.isNotEmpty()) {
+                    append(". Claims: ")
+                    append(claims.take(3).joinToString { "${it.subject}-${it.claimType}" })
+                }
+            }
+        val findings =
+            relationships.take(5).map {
+                mapOf(
+                    "summary" to "${it.sourceId} -> ${it.targetId}",
+                    "explanation" to (it.description ?: it.type),
+                )
+            }
+        val json =
+            kotlinx.serialization.json.buildJsonObject {
+                put("title", kotlinx.serialization.json.JsonPrimitive(title))
+                put("summary", kotlinx.serialization.json.JsonPrimitive(summary))
+                put("rating", kotlinx.serialization.json.JsonPrimitive(0))
+                put("rating_explanation", kotlinx.serialization.json.JsonPrimitive("Fallback summary generated without LLM response."))
+                put(
+                    "findings",
+                    kotlinx.serialization.json.JsonArray(
+                        findings.map { finding ->
+                            kotlinx.serialization.json.buildJsonObject {
+                                put("summary", kotlinx.serialization.json.JsonPrimitive(finding["summary"] ?: ""))
+                                put("explanation", kotlinx.serialization.json.JsonPrimitive(finding["explanation"] ?: ""))
+                            }
+                        },
+                    ),
+                )
+            }
+        return json.toString()
+    }
+
     private fun runPrompt(
         inputText: String,
         maxLength: Int,
@@ -186,12 +238,14 @@ class CommunityReportWorkflow(
         val message = UserMessage.from(prompt)
         val method =
             chatModel.javaClass.methods.firstOrNull { it.name == "generate" && it.parameterTypes.size == 1 }
-        val result = method?.invoke(chatModel, listOf(message))
-        return when (result) {
-            is dev.langchain4j.data.message.AiMessage -> result.text()
-            is dev.langchain4j.model.output.Response<*> -> result.content().toString()
-            else -> result?.toString() ?: ""
-        }
+        val result = method?.invoke(chatModel, listOf(message)) ?: method?.invoke(chatModel, prompt)
+        val content =
+            when (result) {
+                is dev.langchain4j.data.message.AiMessage -> result.text()
+                is dev.langchain4j.model.output.Response<*> -> result.content().toString()
+                else -> result?.toString() ?: ""
+            }
+        return content.trim()
     }
 
     private fun textUnitsForCommunity(

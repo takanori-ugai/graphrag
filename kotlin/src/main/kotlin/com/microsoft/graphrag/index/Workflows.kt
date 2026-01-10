@@ -123,6 +123,7 @@ private suspend fun summarizeDescriptions(
     context: PipelineRunContext,
 ): WorkflowResult {
     val entities = context.state["entities"] as? List<Entity> ?: emptyList()
+    val relationships = context.state["relationships"] as? List<Relationship> ?: emptyList()
     val apiKey = System.getenv("OPENAI_API_KEY") ?: ""
     val chatModel =
         OpenAiChatModel
@@ -131,11 +132,13 @@ private suspend fun summarizeDescriptions(
             .modelName("gpt-4o-mini")
             .build()
     val summarizer = SummarizeDescriptionsWorkflow(chatModel)
-    val summaries = summarizer.summarize(entities)
-    context.state["entity_summaries"] = summaries
+    val textUnits = context.state["text_units"] as? List<TextUnit> ?: emptyList()
+    val summaries = summarizer.summarize(entities, relationships, textUnits)
+    context.state["entity_summaries"] = summaries.entitySummaries
+    context.state["relationships"] = summaries.relationships
     context.outputStorage.set(
         "entity_summaries.txt",
-        "Summarized ${summaries.size} entities at ${Instant.now()}",
+        "Summarized ${summaries.entitySummaries.size} entities at ${Instant.now()}",
     )
     return WorkflowResult(result = "entity_summaries")
 }

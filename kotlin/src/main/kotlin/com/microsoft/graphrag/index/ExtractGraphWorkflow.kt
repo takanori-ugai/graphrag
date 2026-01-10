@@ -2,6 +2,9 @@ package com.microsoft.graphrag.index
 
 import dev.langchain4j.model.openai.OpenAiChatModel
 import dev.langchain4j.service.AiServices
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
 import java.util.UUID
 
 class ExtractGraphWorkflow(
@@ -10,6 +13,7 @@ class ExtractGraphWorkflow(
 ) {
     private val extractor =
         AiServices.create(Extractor::class.java, chatModel)
+    private val json = Json { ignoreUnknownKeys = true }
 
     suspend fun extract(chunks: List<DocumentChunk>): GraphExtractResult {
         val entities = mutableListOf<Entity>()
@@ -22,15 +26,22 @@ class ExtractGraphWorkflow(
             println("LLM raw response for chunk ${chunk.id}:\n$response")
             val parsed = parseResponse(response)
             val chunkEntities =
-                parsed.entities.map {
-                    it.copy(
-                        id = it.id.ifBlank { UUID.randomUUID().toString() },
+                parsed.entities.map { entity ->
+                    val name = entity.name.trim()
+                    val id = name.ifBlank { entity.id ?: UUID.randomUUID().toString() }
+                    entity.copy(
+                        id = id,
                         sourceChunkId = chunk.id,
                     )
                 }
+            val nameToId = chunkEntities.associate { it.name.trim() to it.id }
             val chunkRelationships =
-                parsed.relationships.map {
-                    it.copy(
+                parsed.relationships.map { rel ->
+                    val source = nameToId[rel.sourceId.trim()] ?: rel.sourceId.trim()
+                    val target = nameToId[rel.targetId.trim()] ?: rel.targetId.trim()
+                    rel.copy(
+                        sourceId = source,
+                        targetId = target,
                         sourceChunkId = chunk.id,
                     )
                 }
@@ -45,83 +56,65 @@ class ExtractGraphWorkflow(
         prompts
             .loadExtractGraphPrompt()
             .replace("{entity_types}", "ORGANIZATION,PERSON,GPE,LOCATION")
-            .replace("{tuple_delimiter}", "|")
-            .replace("{record_delimiter}", "\n")
-            .replace("{completion_delimiter}", "__COMPLETE__")
             .replace("{input_text}", chunk.text)
 
     private fun parseResponse(content: String): GraphExtractResult {
-        val entities = mutableListOf<Entity>()
-        val relationships = mutableListOf<Relationship>()
+        val jsonContent =
+            content
+                .trim()
+                .removePrefix("```json")
+                .removePrefix("```")
+                .removeSuffix("```")
+                .trim()
 
-        val entityRegex =
-            Regex(
-                """\("entity"\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\)""",
-                setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
-            )
-        val relationshipRegex =
-            Regex(
-                """\("relationship"\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*([^)]+?)\)""",
-                setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
-            )
+        val extraction =
+            runCatching {
+                json.decodeFromString<ModelExtractionResponse>(jsonContent)
+            }.getOrElse {
+                println("Failed to parse extraction response: ${it.message}")
+                return GraphExtractResult(emptyList(), emptyList())
+            }
 
-        entityRegex.findAll(content).forEach { m ->
-            val name =
-                m.groupValues
-                    .getOrNull(1)
-                    ?.trim()
-                    ?.trim('"') ?: return@forEach
-            val type =
-                m.groupValues
-                    .getOrNull(2)
-                    ?.trim()
-                    ?.trim('"') ?: return@forEach
-            entities +=
+        val entities =
+            extraction.entities.mapNotNull { entity ->
+                val name = entity.name.trim()
+                val type = entity.type.trim()
+                if (name.isEmpty() || type.isEmpty()) return@mapNotNull null
+
                 Entity(
-                    id = UUID.randomUUID().toString(),
+                    id = entity.id?.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString(),
                     name = name,
                     type = type,
                     sourceChunkId = "",
                 )
-        }
+            }
 
-        relationshipRegex.findAll(content).forEach { m ->
-            val src =
-                m.groupValues
-                    .getOrNull(1)
-                    ?.trim()
-                    ?.trim('"') ?: return@forEach
-            val tgt =
-                m.groupValues
-                    .getOrNull(2)
-                    ?.trim()
-                    ?.trim('"') ?: return@forEach
-            val desc =
-                m.groupValues
-                    .getOrNull(3)
-                    ?.trim()
-                    ?.trim('"') ?: ""
-            val strength =
-                m.groupValues
-                    .getOrNull(4)
-                    ?.trim()
-                    ?.trim('"') ?: ""
-            relationships +=
+        val relationships =
+            extraction.relationships.mapNotNull { relationship ->
+                val source = relationship.source.trim()
+                val target = relationship.target.trim()
+                if (source.isEmpty() || target.isEmpty()) return@mapNotNull null
+
                 Relationship(
-                    sourceId = src,
-                    targetId = tgt,
-                    type = desc.ifBlank { "related_to" },
-                    description = "strength=$strength; $desc".trim(';', ' '),
+                    sourceId = source,
+                    targetId = target,
+                    type = relationship.type?.takeIf { it.isNotBlank() } ?: "related_to",
+                    description = buildRelationshipDescription(relationship),
                     sourceChunkId = "",
                 )
-        }
+            }
 
         return GraphExtractResult(entities, relationships)
     }
 
-    private fun invokeChat(prompt: String): String {
-        return extractor.chat(prompt)
+    private fun buildRelationshipDescription(relationship: ModelRelationship): String? {
+        val parts = mutableListOf<String>()
+        relationship.strength?.let { parts += "strength=$it" }
+        relationship.description?.takeIf { it.isNotBlank() }?.let { parts += it.trim() }
+        return parts.joinToString("; ").ifBlank { null }
     }
+
+    private fun invokeChat(prompt: String): String = extractor.chat(prompt)
 
     private interface Extractor {
         @dev.langchain4j.service.SystemMessage(
@@ -132,3 +125,26 @@ class ExtractGraphWorkflow(
         ): String
     }
 }
+
+@Serializable
+private data class ModelExtractionResponse(
+    val entities: List<ModelEntity> = emptyList(),
+    val relationships: List<ModelRelationship> = emptyList(),
+)
+
+@Serializable
+private data class ModelEntity(
+    val id: String? = null,
+    val name: String,
+    val type: String,
+    val description: String? = null,
+)
+
+@Serializable
+private data class ModelRelationship(
+    val source: String,
+    val target: String,
+    val type: String? = null,
+    val description: String? = null,
+    val strength: Double? = null,
+)
