@@ -23,6 +23,7 @@ val koinVersion = "3.5.6"
 val javafxVersion = "21.0.5"
 val jgraphtVersion = "1.5.2"
 val parquetVersion = "1.13.1"
+val networkAnalysisVersion = "1.3.0"
 val osName = System.getProperty("os.name").lowercase()
 val archName = System.getProperty("os.arch").lowercase()
 val javafxPlatform =
@@ -67,6 +68,7 @@ dependencies {
     implementation("org.apache.parquet:parquet-avro:$parquetVersion")
     implementation("org.apache.parquet:parquet-hadoop:$parquetVersion")
     implementation("dev.langchain4j:langchain4j-open-ai:1.9.1")
+    implementation("nl.cwts:networkanalysis:$networkAnalysisVersion")
 
     // Koin for Ktor
     implementation("io.insert-koin:koin-ktor:$koinVersion")

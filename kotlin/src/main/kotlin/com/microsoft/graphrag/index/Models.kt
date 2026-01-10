@@ -36,6 +36,17 @@ data class EntityEmbedding(
     val vector: List<Double>,
 )
 
+data class CommunityAssignment(
+    val entityId: String,
+    val communityId: Int,
+)
+
+@kotlinx.serialization.Serializable
+data class CommunityReport(
+    val communityId: Int,
+    val summary: String,
+)
+
 data class GraphExtractResult(
     val entities: List<Entity>,
     val relationships: List<Relationship>,

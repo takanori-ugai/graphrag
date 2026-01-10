@@ -92,6 +92,20 @@ class ParquetWriterHelper {
             .noDefault()
             .endRecord()
 
+    private val communityAssignmentSchema: Schema =
+        SchemaBuilder
+            .record("CommunityAssignment")
+            .fields()
+            .name("entityId")
+            .type()
+            .stringType()
+            .noDefault()
+            .name("communityId")
+            .type()
+            .intType()
+            .noDefault()
+            .endRecord()
+
     fun writeEntities(
         path: Path,
         entities: List<Entity>,
@@ -179,6 +193,28 @@ class ParquetWriterHelper {
                         GenericData.Record(entityEmbeddingSchema).apply {
                             put("entityId", emb.entityId)
                             put("vector", emb.vector)
+                        },
+                    )
+                }
+            }
+    }
+
+    fun writeCommunityAssignments(
+        path: Path,
+        assignments: List<CommunityAssignment>,
+    ) {
+        ensureParent(path)
+        AvroParquetWriter
+            .builder<GenericData.Record>(LocalOutputFile(path))
+            .withSchema(communityAssignmentSchema)
+            .withCompressionCodec(CompressionCodecName.SNAPPY)
+            .build()
+            .use { writer ->
+                assignments.forEach { assignment ->
+                    writer.write(
+                        GenericData.Record(communityAssignmentSchema).apply {
+                            put("entityId", assignment.entityId)
+                            put("communityId", assignment.communityId)
                         },
                     )
                 }
