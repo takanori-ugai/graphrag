@@ -33,7 +33,7 @@ class LocalVectorStore(
         limit: Int = 5,
     ): List<Pair<String, Double>> {
         val payload = load() ?: return emptyList()
-        return annSearch(payload.entityEmbeddings, query, limit)
+        return linearSearch(payload.entityEmbeddings, query, limit)
     }
 
     private fun ensureParent(p: Path) {
@@ -43,7 +43,7 @@ class LocalVectorStore(
         }
     }
 
-    private fun annSearch(
+    private fun linearSearch(
         embeddings: List<EntityEmbedding>,
         query: List<Double>,
         k: Int,

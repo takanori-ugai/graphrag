@@ -1,12 +1,14 @@
 package com.microsoft.graphrag.index
 
-import dev.langchain4j.data.message.UserMessage
 import dev.langchain4j.model.openai.OpenAiChatModel
+import dev.langchain4j.service.AiServices
 
 class CommunityReportWorkflow(
     private val chatModel: OpenAiChatModel,
     private val prompts: PromptRepository = PromptRepository(),
 ) {
+    private val reporter = AiServices.create(Reporter::class.java, chatModel)
+
     fun generateReports(
         assignments: List<CommunityAssignment>,
         entities: List<Entity>,
@@ -235,17 +237,16 @@ class CommunityReportWorkflow(
                 .loadCommunityReportPrompt()
                 .replace("{max_report_length}", maxLength.toString())
                 .replace("{input_text}", inputText)
-        val message = UserMessage.from(prompt)
-        val method =
-            chatModel.javaClass.methods.firstOrNull { it.name == "generate" && it.parameterTypes.size == 1 }
-        val result = method?.invoke(chatModel, listOf(message)) ?: method?.invoke(chatModel, prompt)
-        val content =
-            when (result) {
-                is dev.langchain4j.data.message.AiMessage -> result.text()
-                is dev.langchain4j.model.output.Response<*> -> result.content().toString()
-                else -> result?.toString() ?: ""
-            }
-        return content.trim()
+        return runCatching { reporter.chat(prompt) ?: "" }.getOrElse { "" }.trim()
+    }
+
+    private interface Reporter {
+        @dev.langchain4j.service.SystemMessage(
+            "You are a helpful assistant that writes concise, well-grounded community reports based on supplied context.",
+        )
+        fun chat(
+            @dev.langchain4j.service.UserMessage userMessage: String,
+        ): String?
     }
 
     private fun textUnitsForCommunity(

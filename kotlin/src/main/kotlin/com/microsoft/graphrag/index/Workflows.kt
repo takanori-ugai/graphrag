@@ -1,6 +1,5 @@
 package com.microsoft.graphrag.index
 
-import dev.langchain4j.model.openai.OpenAiChatModel
 import java.time.Instant
 
 /**
@@ -41,13 +40,7 @@ private suspend fun extractGraph(
     context: PipelineRunContext,
 ): WorkflowResult {
     val chunks = context.state["chunks"] as? List<DocumentChunk> ?: emptyList()
-    val apiKey = System.getenv("OPENAI_API_KEY") ?: ""
-    val chatModel =
-        OpenAiChatModel
-            .builder()
-            .apiKey(apiKey)
-            .modelName("gpt-4o-mini")
-            .build()
+    val chatModel = defaultChatModel()
 
     val extractor = ExtractGraphWorkflow(chatModel)
     val result = extractor.extract(chunks)
@@ -66,13 +59,7 @@ private suspend fun extractClaims(
     context: PipelineRunContext,
 ): WorkflowResult {
     val chunks = context.state["chunks"] as? List<DocumentChunk> ?: emptyList()
-    val apiKey = System.getenv("OPENAI_API_KEY") ?: ""
-    val chatModel =
-        OpenAiChatModel
-            .builder()
-            .apiKey(apiKey)
-            .modelName("gpt-4o-mini")
-            .build()
+    val chatModel = defaultChatModel()
     val claimsWorkflow = ClaimsWorkflow(chatModel)
     val claims = claimsWorkflow.extractClaims(chunks)
     context.state["claims"] = claims
@@ -89,8 +76,7 @@ private suspend fun embedText(
     context: PipelineRunContext,
 ): WorkflowResult {
     val chunks = context.state["chunks"] as? List<DocumentChunk> ?: emptyList()
-    val apiKey = System.getenv("OPENAI_API_KEY") ?: ""
-    val embedder = EmbedWorkflow(defaultEmbeddingModel(apiKey))
+    val embedder = EmbedWorkflow(defaultEmbeddingModel(defaultApiKey()))
     val textEmbeddings = embedder.embedChunks(chunks)
     context.state["text_embeddings"] = textEmbeddings
     context.outputStorage.set(
@@ -106,8 +92,7 @@ private suspend fun embedGraph(
     context: PipelineRunContext,
 ): WorkflowResult {
     val entities = context.state["entities"] as? List<Entity> ?: emptyList()
-    val apiKey = System.getenv("OPENAI_API_KEY") ?: ""
-    val embedder = EmbedWorkflow(defaultEmbeddingModel(apiKey))
+    val embedder = EmbedWorkflow(defaultEmbeddingModel(defaultApiKey()))
     val entityEmbeddings = embedder.embedEntities(entities)
     context.state["entity_embeddings"] = entityEmbeddings
     context.outputStorage.set(
@@ -124,13 +109,7 @@ private suspend fun summarizeDescriptions(
 ): WorkflowResult {
     val entities = context.state["entities"] as? List<Entity> ?: emptyList()
     val relationships = context.state["relationships"] as? List<Relationship> ?: emptyList()
-    val apiKey = System.getenv("OPENAI_API_KEY") ?: ""
-    val chatModel =
-        OpenAiChatModel
-            .builder()
-            .apiKey(apiKey)
-            .modelName("gpt-4o-mini")
-            .build()
+    val chatModel = defaultChatModel()
     val summarizer = SummarizeDescriptionsWorkflow(chatModel)
     val textUnits = context.state["text_units"] as? List<TextUnit> ?: emptyList()
     val summaries = summarizer.summarize(entities, relationships, textUnits)
@@ -238,13 +217,7 @@ private suspend fun communityReports(
                 if (key != null) key to value else null
             }.toMap()
     val priorReports = context.state["community_reports"] as? List<CommunityReport> ?: emptyList()
-    val apiKey = System.getenv("OPENAI_API_KEY") ?: ""
-    val chatModel =
-        OpenAiChatModel
-            .builder()
-            .apiKey(apiKey)
-            .modelName("gpt-4o-mini")
-            .build()
+    val chatModel = defaultChatModel()
     val reporter = CommunityReportWorkflow(chatModel)
     val reports =
         reporter.generateReports(
@@ -263,3 +236,16 @@ private suspend fun communityReports(
     )
     return WorkflowResult(result = "community_reports")
 }
+
+private fun defaultChatModel(): dev.langchain4j.model.openai.OpenAiChatModel {
+    val apiKey = defaultApiKey()
+    return dev.langchain4j.model.openai.OpenAiChatModel
+        .builder()
+        .apiKey(apiKey)
+        .modelName("gpt-4o-mini")
+        .build()
+}
+
+private fun defaultApiKey(): String =
+    System.getenv("OPENAI_API_KEY")
+        ?: error("OPENAI_API_KEY environment variable is required")

@@ -39,8 +39,8 @@ class IndexRunner(
             GraphRagConfig(
                 rootDir = options.root,
                 inputDir = options.root.resolve("input"),
-                outputDir = options.output ?: options.root.resolve("output"),
-                updateOutputDir = options.output ?: options.root.resolve("update_output"),
+                outputDir = options.output?.resolve("output") ?: options.root.resolve("output"),
+                updateOutputDir = options.output?.resolve("update_output") ?: options.root.resolve("update_output"),
             )
 
         runBlocking {

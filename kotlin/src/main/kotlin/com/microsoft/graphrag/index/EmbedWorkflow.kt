@@ -27,8 +27,8 @@ class EmbedWorkflow(
 
     private fun embed(text: String): List<Double>? =
         try {
-            val resp: Response<dev.langchain4j.data.embedding.Embedding> = embeddingModel.embed(text)
-            resp
+            val response: Response<dev.langchain4j.data.embedding.Embedding> = embeddingModel.embed(text)
+            response
                 .content()
                 ?.vector()
                 ?.asList()

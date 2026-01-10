@@ -115,7 +115,11 @@ class MemoryIndexPipeline(
         if (!Files.exists(inputDir)) {
             return emptyList()
         }
-        val walk = Files.walk(inputDir)
-        return walk.filter { path -> Files.isRegularFile(path) }.map { it.toString() }.toList()
+        return Files.walk(inputDir).use { walk ->
+            walk
+                .filter { path -> Files.isRegularFile(path) }
+                .map { it.toString() }
+                .toList()
+        }
     }
 }

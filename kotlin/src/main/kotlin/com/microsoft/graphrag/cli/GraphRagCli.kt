@@ -48,12 +48,7 @@ class InitCommand : Runnable {
     }
 }
 
-@Command(
-    name = "index",
-    description = ["Build a knowledge graph index."],
-    mixinStandardHelpOptions = true,
-)
-class IndexCommand : Runnable {
+class SharedIndexOptions {
     @Option(
         names = ["-c", "--config"],
         description = ["Configuration file to use."],
@@ -68,13 +63,6 @@ class IndexCommand : Runnable {
     var root: Path = Path.of(".")
 
     @Option(
-        names = ["-m", "--method"],
-        description = ["Indexing method to use (standard, fast, standard-update, fast-update)."],
-        defaultValue = "standard",
-    )
-    var method: String = "standard"
-
-    @Option(
         names = ["-v", "--verbose"],
         description = ["Run with verbose logging."],
     )
@@ -85,12 +73,6 @@ class IndexCommand : Runnable {
         description = ["Run the indexing pipeline with memory profiling."],
     )
     var memprofile: Boolean = false
-
-    @Option(
-        names = ["--dry-run"],
-        description = ["Validate configuration without executing any steps."],
-    )
-    var dryRun: Boolean = false
 
     @Option(
         names = ["--cache"],
@@ -111,19 +93,42 @@ class IndexCommand : Runnable {
         description = ["Indexing pipeline output directory (overrides output.base_dir)."],
     )
     var output: Path? = null
+}
+
+@Command(
+    name = "index",
+    description = ["Build a knowledge graph index."],
+    mixinStandardHelpOptions = true,
+)
+class IndexCommand : Runnable {
+    @CommandLine.Mixin
+    private val shared = SharedIndexOptions()
+
+    @Option(
+        names = ["-m", "--method"],
+        description = ["Indexing method to use (standard, fast, standard-update, fast-update)."],
+        defaultValue = "standard",
+    )
+    var method: String = "standard"
+
+    @Option(
+        names = ["--dry-run"],
+        description = ["Validate configuration without executing any steps."],
+    )
+    var dryRun: Boolean = false
 
     override fun run() {
         IndexRunner().run(
             IndexOptions(
-                root = root,
-                config = config,
+                root = shared.root,
+                config = shared.config,
                 method = method,
-                verbose = verbose,
-                memprofile = memprofile,
+                verbose = shared.verbose,
+                memprofile = shared.memprofile,
                 dryRun = dryRun,
-                cache = cache,
-                skipValidation = skipValidation,
-                output = output,
+                cache = shared.cache,
+                skipValidation = shared.skipValidation,
+                output = shared.output,
                 isUpdate = false,
             ),
         )
@@ -136,18 +141,8 @@ class IndexCommand : Runnable {
     mixinStandardHelpOptions = true,
 )
 class UpdateCommand : Runnable {
-    @Option(
-        names = ["-c", "--config"],
-        description = ["Configuration file to use."],
-    )
-    var config: Path? = null
-
-    @Option(
-        names = ["-r", "--root"],
-        description = ["Project root directory."],
-        defaultValue = ".",
-    )
-    var root: Path = Path.of(".")
+    @CommandLine.Mixin
+    private val shared = SharedIndexOptions()
 
     @Option(
         names = ["-m", "--method"],
@@ -156,50 +151,18 @@ class UpdateCommand : Runnable {
     )
     var method: String = "standard-update"
 
-    @Option(
-        names = ["-v", "--verbose"],
-        description = ["Run with verbose logging."],
-    )
-    var verbose: Boolean = false
-
-    @Option(
-        names = ["--memprofile"],
-        description = ["Run the indexing pipeline with memory profiling."],
-    )
-    var memprofile: Boolean = false
-
-    @Option(
-        names = ["--cache"],
-        description = ["Use LLM cache (disable with --no-cache)."],
-        negatable = true,
-        defaultValue = "true",
-    )
-    var cache: Boolean = true
-
-    @Option(
-        names = ["--skip-validation"],
-        description = ["Skip preflight validation (useful when running no LLM steps)."],
-    )
-    var skipValidation: Boolean = false
-
-    @Option(
-        names = ["-o", "--output"],
-        description = ["Indexing pipeline output directory (overrides output.base_dir)."],
-    )
-    var output: Path? = null
-
     override fun run() {
         IndexRunner().run(
             IndexOptions(
-                root = root,
-                config = config,
+                root = shared.root,
+                config = shared.config,
                 method = method,
-                verbose = verbose,
-                memprofile = memprofile,
+                verbose = shared.verbose,
+                memprofile = shared.memprofile,
                 dryRun = false,
-                cache = cache,
-                skipValidation = skipValidation,
-                output = output,
+                cache = shared.cache,
+                skipValidation = shared.skipValidation,
+                output = shared.output,
                 isUpdate = true,
             ),
         )

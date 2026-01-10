@@ -50,14 +50,15 @@ class FilePipelineStorage(
         if (!Files.exists(root)) {
             return emptySequence()
         }
-        val stream = Files.walk(root)
-        return stream
-            .filter { Files.isRegularFile(it) }
-            .map { path ->
-                val relative = root.relativize(path).toString()
-                relative to path
-            }.filter { (relative, _) -> regex.containsMatchIn(relative) }
-            .collect(Collectors.toList())
-            .asSequence()
+        return Files.walk(root).use { stream ->
+            stream
+                .filter { Files.isRegularFile(it) }
+                .map { path ->
+                    val relative = root.relativize(path).toString()
+                    relative to path
+                }.filter { (relative, _) -> regex.containsMatchIn(relative) }
+                .collect(Collectors.toList())
+                .asSequence()
+        }
     }
 }

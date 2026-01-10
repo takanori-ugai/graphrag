@@ -2,6 +2,7 @@ package com.microsoft.graphrag.index
 
 import dev.langchain4j.data.message.UserMessage
 import dev.langchain4j.model.openai.OpenAiChatModel
+import dev.langchain4j.service.AiServices
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
@@ -11,6 +12,8 @@ class SummarizeDescriptionsWorkflow(
     private val maxSummaryLength: Int = 120,
     private val maxInputTokens: Int = 800,
 ) {
+    private val summarizer = AiServices.create(Summarizer::class.java, chatModel)
+
     fun summarize(
         entities: List<Entity>,
         relationships: List<Relationship>,
@@ -115,18 +118,20 @@ class SummarizeDescriptionsWorkflow(
                 .replace("{entity_name}", idLabel)
                 .replace("{description_list}", Json.encodeToString(descriptions))
                 .replace("{max_length}", maxSummaryLength.toString())
-        val message = UserMessage.from(prompt)
-        val method =
-            chatModel.javaClass.methods.firstOrNull { it.name == "generate" && it.parameterTypes.size == 1 }
-        val result = method?.invoke(chatModel, listOf(message))
-        return when (result) {
-            is dev.langchain4j.data.message.AiMessage -> result.text()
-            is dev.langchain4j.model.output.Response<*> -> result.content().toString()
-            else -> result?.toString() ?: ""
-        }
+        val response = runCatching { summarizer.chat(prompt) }.getOrNull()
+        return response?.trim().orEmpty()
     }
 
     private fun tokenEstimate(text: String): Int = (text.length / 4).coerceAtLeast(1)
+
+    private interface Summarizer {
+        @dev.langchain4j.service.SystemMessage(
+            "You are an information extraction assistant. Summarize entity and relationship descriptions as instructed.",
+        )
+        fun chat(
+            @dev.langchain4j.service.UserMessage userMessage: String,
+        ): String?
+    }
 }
 
 data class SummarizationResult(
