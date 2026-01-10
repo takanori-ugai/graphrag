@@ -206,8 +206,10 @@ private suspend fun communityDetection(
     val entities = context.state["entities"] as? List<Entity> ?: emptyList()
     val relationships = context.state["relationships"] as? List<Relationship> ?: emptyList()
     val detector = CommunityDetectionWorkflow()
-    val assignments = detector.detect(entities, relationships)
+    val detection = detector.detect(entities, relationships)
+    val assignments = detection.assignments
     context.state["communities"] = assignments
+    context.state["community_hierarchy"] = detection.hierarchy
     context.outputStorage.set(
         "communities.txt",
         "Detected ${assignments.map { it.communityId }.distinct().size} communities at ${Instant.now()}",
@@ -223,6 +225,16 @@ private suspend fun communityReports(
     val communities = context.state["communities"] as? List<CommunityAssignment> ?: emptyList()
     val entities = context.state["entities"] as? List<Entity> ?: emptyList()
     val relationships = context.state["relationships"] as? List<Relationship> ?: emptyList()
+    val textUnits = context.state["text_units"] as? List<TextUnit> ?: emptyList()
+    val claims = context.state["claims"] as? List<Claim> ?: emptyList()
+    val hierarchy =
+        (context.state["community_hierarchy"] as? Map<*, *> ?: emptyMap<Any, Any>())
+            .mapNotNull { (k, v) ->
+                val key = k as? Int
+                val value = v as? Int
+                if (key != null) key to value else null
+            }.toMap()
+    val priorReports = context.state["community_reports"] as? List<CommunityReport> ?: emptyList()
     val apiKey = System.getenv("OPENAI_API_KEY") ?: ""
     val chatModel =
         OpenAiChatModel
@@ -231,7 +243,16 @@ private suspend fun communityReports(
             .modelName("gpt-4o-mini")
             .build()
     val reporter = CommunityReportWorkflow(chatModel)
-    val reports = reporter.generateReports(communities, entities, relationships)
+    val reports =
+        reporter.generateReports(
+            communities,
+            entities,
+            relationships,
+            textUnits,
+            claims,
+            hierarchy,
+            priorReports,
+        )
     context.state["community_reports"] = reports
     context.outputStorage.set(
         "community_reports.txt",

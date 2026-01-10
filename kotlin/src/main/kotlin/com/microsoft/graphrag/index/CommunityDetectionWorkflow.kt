@@ -12,15 +12,24 @@ class CommunityDetectionWorkflow {
     fun detect(
         entities: List<Entity>,
         relationships: List<Relationship>,
-    ): List<CommunityAssignment> {
-        val graph = buildAdjacency(relationships)
-        val networkAssignments = detectWithNetworkAnalysis(graph)
-        val assignments = networkAssignments ?: labelPropagation(graph)
-        return assignments.map { (entityId, community) -> CommunityAssignment(entityId, community) }
+    ): CommunityDetectionResult {
+        val graph = buildAdjacency(entities, relationships)
+        val hierarchical = detectWithNetworkAnalysis(graph)
+        if (hierarchical != null) {
+            return hierarchical
+        }
+        val assignments = labelPropagation(graph)
+        val communityAssignments =
+            assignments.map { (entityId, community) -> CommunityAssignment(entityId, community) }
+        return CommunityDetectionResult(communityAssignments, emptyMap())
     }
 
-    private fun buildAdjacency(relationships: List<Relationship>): Map<String, MutableSet<String>> {
+    private fun buildAdjacency(
+        entities: List<Entity>,
+        relationships: List<Relationship>,
+    ): Map<String, MutableSet<String>> {
         val adjacency = mutableMapOf<String, MutableSet<String>>()
+        entities.forEach { entity -> adjacency.computeIfAbsent(entity.id) { mutableSetOf() } }
         relationships.forEach { rel ->
             adjacency.computeIfAbsent(rel.sourceId) { mutableSetOf() }.add(rel.targetId)
             adjacency.computeIfAbsent(rel.targetId) { mutableSetOf() }.add(rel.sourceId)
@@ -71,8 +80,8 @@ class CommunityDetectionWorkflow {
         return labels.mapValues { (_, label) -> mapping[label] ?: label }
     }
 
-    private fun detectWithNetworkAnalysis(graph: Map<String, MutableSet<String>>): Map<String, Int>? =
-        try {
+    private fun detectWithNetworkAnalysis(graph: Map<String, MutableSet<String>>): CommunityDetectionResult? {
+        return try {
             val nodeIndex = graph.keys.withIndex().associate { it.value to it.index }
             if (nodeIndex.isEmpty()) return null
 
@@ -93,16 +102,50 @@ class CommunityDetectionWorkflow {
             val nodeWeights = DoubleArray(nodeIndex.size) { 1.0 }
 
             val network = Network(nodeWeights, edges, edgeWeights, false, true)
-            val leiden = LeidenAlgorithm(1.0, 10, 0.01, Random(42))
-            val clustering = leiden.findClustering(network)
+            val clusterings =
+                listOf(
+                    LeidenAlgorithm(1.0, 10, 0.01, Random(40)).findClustering(network),
+                    LeidenAlgorithm(0.5, 10, 0.01, Random(41)).findClustering(network),
+                    LeidenAlgorithm(0.25, 10, 0.01, Random(42)).findClustering(network),
+                )
 
-            val result = mutableMapOf<String, Int>()
             val indexToNode = nodeIndex.entries.associate { (node, idx) -> idx to node }
-            indexToNode.forEach { (idx, nodeName) ->
-                result[nodeName] = clustering.getCluster(idx)
+            val labelsByLevel = mutableListOf<Map<String, Int>>()
+            clusterings.forEach { clustering ->
+                val labels = mutableMapOf<String, Int>()
+                indexToNode.forEach { (idx, nodeName) ->
+                    labels[nodeName] = clustering.getCluster(idx)
+                }
+                labelsByLevel.add(normalizeLabels(labels))
             }
-            result
+
+            val levelId: (Int, Int) -> Int = { level, cluster -> level * 1_000_000 + cluster }
+
+            val fineLabels = labelsByLevel.firstOrNull() ?: emptyMap()
+            val assignments =
+                fineLabels.map { (node, community) ->
+                    CommunityAssignment(node, levelId(0, community))
+                }
+
+            val hierarchy = mutableMapOf<Int, Int>()
+            for (level in 0 until labelsByLevel.size - 1) {
+                val childLabels = labelsByLevel[level]
+                val parentLabels = labelsByLevel[level + 1]
+                childLabels.forEach { (node, childCluster) ->
+                    val parentCluster = parentLabels[node] ?: return@forEach
+                    hierarchy[levelId(level, childCluster)] = levelId(level + 1, parentCluster)
+                }
+            }
+
+            CommunityDetectionResult(assignments, hierarchy)
         } catch (_: Exception) {
             null
         }
+    }
+
+    private fun normalizeLabels(labels: Map<String, Int>): Map<String, Int> {
+        val distinct = labels.values.distinct().sorted()
+        val mapping = distinct.withIndex().associate { it.value to it.index }
+        return labels.mapValues { (_, value) -> mapping[value] ?: value }
+    }
 }

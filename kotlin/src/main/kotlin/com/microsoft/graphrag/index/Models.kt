@@ -44,10 +44,16 @@ data class CommunityAssignment(
     val communityId: Int,
 )
 
+data class CommunityDetectionResult(
+    val assignments: List<CommunityAssignment>,
+    val hierarchy: Map<Int, Int>,
+)
+
 @kotlinx.serialization.Serializable
 data class CommunityReport(
     val communityId: Int,
     val summary: String,
+    val parentCommunityId: Int? = null,
 )
 
 @kotlinx.serialization.Serializable
