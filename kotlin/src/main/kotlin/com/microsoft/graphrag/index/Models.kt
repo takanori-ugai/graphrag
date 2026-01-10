@@ -1,5 +1,8 @@
 package com.microsoft.graphrag.index
 
+import com.fasterxml.jackson.annotation.JsonCreator
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties
+import com.fasterxml.jackson.annotation.JsonProperty
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -57,15 +60,18 @@ data class CommunityReport(
 )
 
 @kotlinx.serialization.Serializable
-data class Claim(
-    val subject: String,
-    val `object`: String,
-    val claimType: String,
-    val status: String,
-    val startDate: String,
-    val endDate: String,
-    val description: String,
-    val sourceText: String,
+@JsonIgnoreProperties(ignoreUnknown = true)
+data class Claim
+@JsonCreator
+constructor(
+    @JsonProperty("subject") val subject: String,
+    @JsonProperty("object") val `object`: String,
+    @JsonProperty("claimType") val claimType: String,
+    @JsonProperty("status") val status: String,
+    @JsonProperty("startDate") val startDate: String,
+    @JsonProperty("endDate") val endDate: String,
+    @JsonProperty("description") val description: String,
+    @JsonProperty("sourceText") val sourceText: String,
 )
 
 @kotlinx.serialization.Serializable

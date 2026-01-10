@@ -1,5 +1,6 @@
 package com.microsoft.graphrag.index
 
+import dev.langchain4j.model.chat.Capability.RESPONSE_FORMAT_JSON_SCHEMA
 import java.time.Instant
 
 /**
@@ -243,6 +244,8 @@ private fun defaultChatModel(): dev.langchain4j.model.openai.OpenAiChatModel {
         .builder()
         .apiKey(apiKey)
         .modelName("gpt-4o-mini")
+        .supportedCapabilities(RESPONSE_FORMAT_JSON_SCHEMA)
+        .strictJsonSchema(true)
         .build()
 }
 

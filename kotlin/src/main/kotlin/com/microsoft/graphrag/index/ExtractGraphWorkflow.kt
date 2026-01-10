@@ -1,10 +1,11 @@
 package com.microsoft.graphrag.index
 
+import com.fasterxml.jackson.annotation.JsonCreator
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties
+import com.fasterxml.jackson.annotation.JsonProperty
 import dev.langchain4j.model.openai.OpenAiChatModel
 import dev.langchain4j.service.AiServices
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.json.Json
 import java.util.UUID
 
 class ExtractGraphWorkflow(
@@ -13,7 +14,6 @@ class ExtractGraphWorkflow(
 ) {
     private val extractor =
         AiServices.create(Extractor::class.java, chatModel)
-    private val json = Json { ignoreUnknownKeys = true }
 
     suspend fun extract(chunks: List<DocumentChunk>): GraphExtractResult {
         val entities = mutableListOf<Entity>()
@@ -23,7 +23,7 @@ class ExtractGraphWorkflow(
             val prompt = buildPrompt(chunk)
             println("ExtractGraph: chunk ${chunk.id} text preview: ${chunk.text.take(200)}")
             val response = invokeChat(prompt)
-            println("LLM raw response for chunk ${chunk.id}:\n$response")
+            println("LLM structured response for chunk ${chunk.id}: $response")
             val parsed = parseResponse(response)
             val chunkEntities =
                 parsed.entities.map { entity ->
@@ -58,22 +58,9 @@ class ExtractGraphWorkflow(
             .replace("{entity_types}", "ORGANIZATION,PERSON,GPE,LOCATION")
             .replace("{input_text}", chunk.text)
 
-    private fun parseResponse(content: String): GraphExtractResult {
-        val jsonContent =
-            content
-                .trim()
-                .removePrefix("```json")
-                .removePrefix("```")
-                .removeSuffix("```")
-                .trim()
-
+    private fun parseResponse(response: ModelExtractionResponse?): GraphExtractResult {
         val extraction =
-            runCatching {
-                json.decodeFromString<ModelExtractionResponse>(jsonContent)
-            }.getOrElse {
-                println("Failed to parse extraction response: ${it.message}")
-                return GraphExtractResult(emptyList(), emptyList())
-            }
+            response ?: return GraphExtractResult(emptyList(), emptyList())
 
         val entities =
             extraction.entities.mapNotNull { entity ->
@@ -114,37 +101,50 @@ class ExtractGraphWorkflow(
         return parts.joinToString("; ").ifBlank { null }
     }
 
-    private fun invokeChat(prompt: String): String = extractor.chat(prompt)
+    private fun invokeChat(prompt: String): ModelExtractionResponse? =
+        runCatching { extractor.extract(prompt) }.getOrElse {
+            println("Failed to parse extraction response: ${it.message}")
+            null
+        }
 
     private interface Extractor {
         @dev.langchain4j.service.SystemMessage(
             "You are an information extraction assistant. Extract entities and relationships exactly as instructed in the user message.",
         )
-        fun chat(
+        fun extract(
             @dev.langchain4j.service.UserMessage userMessage: String,
-        ): String
+        ): ModelExtractionResponse
     }
 }
 
 @Serializable
-private data class ModelExtractionResponse(
-    val entities: List<ModelEntity> = emptyList(),
-    val relationships: List<ModelRelationship> = emptyList(),
+@JsonIgnoreProperties(ignoreUnknown = true)
+data class ModelExtractionResponse
+@JsonCreator
+constructor(
+    @JsonProperty("entities") val entities: List<ModelEntity> = emptyList(),
+    @JsonProperty("relationships") val relationships: List<ModelRelationship> = emptyList(),
 )
 
 @Serializable
-private data class ModelEntity(
-    val id: String? = null,
-    val name: String,
-    val type: String,
-    val description: String? = null,
+@JsonIgnoreProperties(ignoreUnknown = true)
+data class ModelEntity
+@JsonCreator
+constructor(
+    @JsonProperty("id") val id: String? = null,
+    @JsonProperty("name") val name: String,
+    @JsonProperty("type") val type: String,
+    @JsonProperty("description") val description: String? = null,
 )
 
 @Serializable
-private data class ModelRelationship(
-    val source: String,
-    val target: String,
-    val type: String? = null,
-    val description: String? = null,
-    val strength: Double? = null,
+@JsonIgnoreProperties(ignoreUnknown = true)
+data class ModelRelationship
+@JsonCreator
+constructor(
+    @JsonProperty("source") val source: String,
+    @JsonProperty("target") val target: String,
+    @JsonProperty("type") val type: String? = null,
+    @JsonProperty("description") val description: String? = null,
+    @JsonProperty("strength") val strength: Double? = null,
 )
