@@ -3,6 +3,7 @@ package com.microsoft.graphrag.index
 import dev.langchain4j.model.embedding.EmbeddingModel
 import dev.langchain4j.model.openai.OpenAiEmbeddingModel
 import dev.langchain4j.model.output.Response
+import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -33,9 +34,14 @@ class EmbedWorkflow(
                 ?.vector()
                 ?.asList()
                 ?.map { it.toDouble() }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            logger.warn(e) { "Embedding failed for text: ${text.take(50)}..." }
             null
         }
+
+    companion object {
+        private val logger = KotlinLogging.logger {}
+    }
 }
 
 fun defaultEmbeddingModel(apiKey: String): EmbeddingModel =

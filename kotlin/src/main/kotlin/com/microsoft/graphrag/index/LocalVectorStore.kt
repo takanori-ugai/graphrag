@@ -25,7 +25,9 @@ class LocalVectorStore(
 
     fun load(): Payload? {
         if (!Files.exists(path)) return null
-        return json.decodeFromString(Files.readString(path))
+        return runCatching {
+            json.decodeFromString<Payload>(Files.readString(path))
+        }.getOrNull()
     }
 
     fun nearestEntities(

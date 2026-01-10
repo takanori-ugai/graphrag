@@ -75,7 +75,8 @@ class CommunityReportWorkflow(
         buildString {
             appendLine("id,entity,description")
             entities.forEachIndexed { idx, e ->
-                appendLine("${idx + 1},${e.name},${e.type}: ${e.name}")
+                val description = e.type.ifBlank { "entity" }
+                appendLine("${idx + 1},${escapeCsv(e.name)},${escapeCsv(description)}")
             }
         }
 
@@ -83,7 +84,10 @@ class CommunityReportWorkflow(
         buildString {
             appendLine("id,source,target,description")
             relationships.forEachIndexed { idx, r ->
-                appendLine("${idx + 1},${r.sourceId},${r.targetId},${r.description ?: r.type}")
+                appendLine(
+                    "${idx + 1},${escapeCsv(r.sourceId)},${escapeCsv(r.targetId)}," +
+                        escapeCsv(r.description ?: r.type ?: ""),
+                )
             }
         }
 
@@ -91,8 +95,8 @@ class CommunityReportWorkflow(
         buildString {
             appendLine("text_unit_id,chunk_id,text")
             textUnits.forEach { tu ->
-                val trimmed = tu.text.replace("\n", " ").take(500)
-                appendLine("${tu.id},${tu.chunkId},$trimmed")
+                val trimmed = escapeCsv(tu.text.take(500))
+                appendLine("${escapeCsv(tu.id)},${escapeCsv(tu.chunkId)},$trimmed")
             }
         }
 
@@ -274,11 +278,21 @@ class CommunityReportWorkflow(
             appendLine("subject,object,type,status,start_date,end_date,description")
             claims.forEach { c ->
                 appendLine(
-                    "${c.subject},${c.`object`},${c.claimType},${c.status}," +
-                        "${c.startDate},${c.endDate},${c.description.replace("\n", " ")}",
+                    "${escapeCsv(c.subject)},${escapeCsv(c.`object`)},${escapeCsv(c.claimType)}," +
+                        "${escapeCsv(c.status)},${escapeCsv(c.startDate)},${escapeCsv(c.endDate)}," +
+                        escapeCsv(c.description),
                 )
             }
         }
+
+    private fun escapeCsv(value: String): String {
+        val cleaned = value.replace("\n", " ")
+        return if (cleaned.contains(",") || cleaned.contains("\"")) {
+            "\"${cleaned.replace("\"", "\"\"")}\""
+        } else {
+            cleaned
+        }
+    }
 
     private fun subReportsForCommunity(
         communityId: Int,

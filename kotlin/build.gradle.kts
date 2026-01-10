@@ -25,6 +25,7 @@ val jgraphtVersion = "1.5.2"
 val parquetVersion = "1.13.1"
 val networkAnalysisVersion = "1.3.0"
 val smileVersion = "4.4.0"
+val langchain4jVersion = "1.9.1"
 val osName = System.getProperty("os.name").lowercase()
 val archName = System.getProperty("os.arch").lowercase()
 val javafxPlatform =
@@ -68,7 +69,6 @@ dependencies {
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.17.2")
     implementation("org.jgrapht:jgrapht-core:$jgraphtVersion")
     implementation("blue.strategic.parquet:parquet-floor:1.51")
-    implementation("dev.langchain4j:langchain4j-open-ai:1.9.1")
     implementation("nl.cwts:networkanalysis:$networkAnalysisVersion")
     implementation("com.github.haifengl:smile-base:$smileVersion")
     implementation("com.github.haifengl:smile-core:$smileVersion")
@@ -80,9 +80,9 @@ dependencies {
     implementation("info.picocli:picocli:4.7.6")
 
     // LangChain4j dependencies
-    implementation("dev.langchain4j:langchain4j:1.9.1")
-    implementation("dev.langchain4j:langchain4j-open-ai:1.9.1")
-    implementation("dev.langchain4j:langchain4j-ollama:1.9.1")
+    implementation("dev.langchain4j:langchain4j:$langchain4jVersion")
+    implementation("dev.langchain4j:langchain4j-open-ai:$langchain4jVersion")
+    implementation("dev.langchain4j:langchain4j-ollama:$langchain4jVersion")
     implementation("dev.langchain4j:langchain4j-community-neo4j:1.9.1-beta17")
 
     implementation("org.openjfx:javafx-base:$javafxVersion:$javafxPlatform")

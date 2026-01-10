@@ -1,14 +1,17 @@
 package com.microsoft.graphrag.index
 
 import dev.langchain4j.model.chat.Capability.RESPONSE_FORMAT_JSON_SCHEMA
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.time.Instant
 
 /**
  * Realistic workflow skeleton: load documents, chunk, extract entities/relationships with LLM,
  * embed text/entities, build graph, write parquet outputs. Community steps remain TODO.
  */
-fun defaultPipeline(): Pipeline =
-    SimplePipeline(
+fun defaultPipeline(): Pipeline {
+    validateApiKey()
+    return SimplePipeline(
         listOf(
             "load_input_documents" to ::loadInputDocuments,
             "extract_graph" to ::extractGraph,
@@ -22,6 +25,16 @@ fun defaultPipeline(): Pipeline =
             "write_outputs" to ::writeOutputs,
         ),
     )
+}
+
+private fun validateApiKey() {
+    // Force initialization to fail fast if OPENAI_API_KEY is missing.
+    openAiApiKey
+}
+
+private val openAiApiKey: String by lazy { defaultApiKey() }
+
+private val sharedChatModel: dev.langchain4j.model.openai.OpenAiChatModel by lazy { defaultChatModel() }
 
 private suspend fun loadInputDocuments(
     config: GraphRagConfig,
@@ -41,7 +54,7 @@ private suspend fun extractGraph(
     context: PipelineRunContext,
 ): WorkflowResult {
     val chunks = context.state["chunks"] as? List<DocumentChunk> ?: emptyList()
-    val chatModel = defaultChatModel()
+    val chatModel = sharedChatModel
 
     val extractor = ExtractGraphWorkflow(chatModel)
     val result = extractor.extract(chunks)
@@ -60,7 +73,7 @@ private suspend fun extractClaims(
     context: PipelineRunContext,
 ): WorkflowResult {
     val chunks = context.state["chunks"] as? List<DocumentChunk> ?: emptyList()
-    val chatModel = defaultChatModel()
+    val chatModel = sharedChatModel
     val claimsWorkflow = ClaimsWorkflow(chatModel)
     val claims = claimsWorkflow.extractClaims(chunks)
     context.state["claims"] = claims
@@ -77,7 +90,7 @@ private suspend fun embedText(
     context: PipelineRunContext,
 ): WorkflowResult {
     val chunks = context.state["chunks"] as? List<DocumentChunk> ?: emptyList()
-    val embedder = EmbedWorkflow(defaultEmbeddingModel(defaultApiKey()))
+    val embedder = EmbedWorkflow(defaultEmbeddingModel(openAiApiKey))
     val textEmbeddings = embedder.embedChunks(chunks)
     context.state["text_embeddings"] = textEmbeddings
     context.outputStorage.set(
@@ -93,7 +106,7 @@ private suspend fun embedGraph(
     context: PipelineRunContext,
 ): WorkflowResult {
     val entities = context.state["entities"] as? List<Entity> ?: emptyList()
-    val embedder = EmbedWorkflow(defaultEmbeddingModel(defaultApiKey()))
+    val embedder = EmbedWorkflow(defaultEmbeddingModel(openAiApiKey))
     val entityEmbeddings = embedder.embedEntities(entities)
     context.state["entity_embeddings"] = entityEmbeddings
     context.outputStorage.set(
@@ -110,7 +123,7 @@ private suspend fun summarizeDescriptions(
 ): WorkflowResult {
     val entities = context.state["entities"] as? List<Entity> ?: emptyList()
     val relationships = context.state["relationships"] as? List<Relationship> ?: emptyList()
-    val chatModel = defaultChatModel()
+    val chatModel = sharedChatModel
     val summarizer = SummarizeDescriptionsWorkflow(chatModel)
     val textUnits = context.state["text_units"] as? List<TextUnit> ?: emptyList()
     val summaries = summarizer.summarize(entities, relationships, textUnits)
@@ -166,11 +179,13 @@ private suspend fun writeOutputs(
                 kotlinx.serialization.builtins.ListSerializer(CommunityReport.serializer()),
                 reports,
             )
-    config.outputDir.resolve("community_reports.json").apply {
-        java.nio.file.Files
-            .createDirectories(parent)
-        java.nio.file.Files
-            .writeString(this, reportsJson)
+    withContext(Dispatchers.IO) {
+        config.outputDir.resolve("community_reports.json").apply {
+            java.nio.file.Files
+                .createDirectories(parent)
+            java.nio.file.Files
+                .writeString(this, reportsJson)
+        }
     }
     writer.writeTextUnits(config.outputDir.resolve("text_units.parquet"), textUnits)
     writer.writeEntitySummaries(config.outputDir.resolve("entity_summaries.parquet"), summaries)
@@ -218,7 +233,7 @@ private suspend fun communityReports(
                 if (key != null) key to value else null
             }.toMap()
     val priorReports = context.state["community_reports"] as? List<CommunityReport> ?: emptyList()
-    val chatModel = defaultChatModel()
+    val chatModel = sharedChatModel
     val reporter = CommunityReportWorkflow(chatModel)
     val reports =
         reporter.generateReports(
@@ -238,16 +253,14 @@ private suspend fun communityReports(
     return WorkflowResult(result = "community_reports")
 }
 
-private fun defaultChatModel(): dev.langchain4j.model.openai.OpenAiChatModel {
-    val apiKey = defaultApiKey()
-    return dev.langchain4j.model.openai.OpenAiChatModel
+private fun defaultChatModel(): dev.langchain4j.model.openai.OpenAiChatModel =
+    dev.langchain4j.model.openai.OpenAiChatModel
         .builder()
-        .apiKey(apiKey)
+        .apiKey(openAiApiKey)
         .modelName("gpt-4o-mini")
         .supportedCapabilities(RESPONSE_FORMAT_JSON_SCHEMA)
         .strictJsonSchema(true)
         .build()
-}
 
 private fun defaultApiKey(): String =
     System.getenv("OPENAI_API_KEY")

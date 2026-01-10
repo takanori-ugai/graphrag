@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonProperty
 import dev.langchain4j.model.openai.OpenAiChatModel
 import dev.langchain4j.service.AiServices
+import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.serialization.Serializable
 import java.util.UUID
 
@@ -21,9 +22,9 @@ class ExtractGraphWorkflow(
 
         for (chunk in chunks) {
             val prompt = buildPrompt(chunk)
-            println("ExtractGraph: chunk ${chunk.id} text preview: ${chunk.text.take(200)}")
+            logger.debug { "ExtractGraph: chunk ${chunk.id} text preview: ${chunk.text.take(200)}" }
             val response = invokeChat(prompt)
-            println("LLM structured response for chunk ${chunk.id}: $response")
+            logger.debug { "LLM structured response for chunk ${chunk.id}: $response" }
             val parsed = parseResponse(response)
             val chunkEntities =
                 parsed.entities.map { entity ->
@@ -103,7 +104,9 @@ class ExtractGraphWorkflow(
 
     private fun invokeChat(prompt: String): ModelExtractionResponse? =
         runCatching { extractor.extract(prompt) }.getOrElse {
-            println("Failed to parse extraction response: ${it.message}")
+            logger.warn(it) {
+                "Failed to parse extraction response; prompt preview: ${prompt.take(200)}"
+            }
             null
         }
 
@@ -115,36 +118,40 @@ class ExtractGraphWorkflow(
             @dev.langchain4j.service.UserMessage userMessage: String,
         ): ModelExtractionResponse
     }
+
+    companion object {
+        private val logger = KotlinLogging.logger {}
+    }
 }
 
 @Serializable
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class ModelExtractionResponse
-@JsonCreator
-constructor(
-    @JsonProperty("entities") val entities: List<ModelEntity> = emptyList(),
-    @JsonProperty("relationships") val relationships: List<ModelRelationship> = emptyList(),
-)
+    @JsonCreator
+    constructor(
+        @JsonProperty("entities") val entities: List<ModelEntity> = emptyList(),
+        @JsonProperty("relationships") val relationships: List<ModelRelationship> = emptyList(),
+    )
 
 @Serializable
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class ModelEntity
-@JsonCreator
-constructor(
-    @JsonProperty("id") val id: String? = null,
-    @JsonProperty("name") val name: String,
-    @JsonProperty("type") val type: String,
-    @JsonProperty("description") val description: String? = null,
-)
+    @JsonCreator
+    constructor(
+        @JsonProperty("id") val id: String? = null,
+        @JsonProperty("name") val name: String,
+        @JsonProperty("type") val type: String,
+        @JsonProperty("description") val description: String? = null,
+    )
 
 @Serializable
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class ModelRelationship
-@JsonCreator
-constructor(
-    @JsonProperty("source") val source: String,
-    @JsonProperty("target") val target: String,
-    @JsonProperty("type") val type: String? = null,
-    @JsonProperty("description") val description: String? = null,
-    @JsonProperty("strength") val strength: Double? = null,
-)
+    @JsonCreator
+    constructor(
+        @JsonProperty("source") val source: String,
+        @JsonProperty("target") val target: String,
+        @JsonProperty("type") val type: String? = null,
+        @JsonProperty("description") val description: String? = null,
+        @JsonProperty("strength") val strength: Double? = null,
+    )
