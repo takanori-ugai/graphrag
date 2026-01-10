@@ -66,6 +66,7 @@ dependencies {
     implementation("org.jgrapht:jgrapht-core:$jgraphtVersion")
     implementation("org.apache.parquet:parquet-avro:$parquetVersion")
     implementation("org.apache.parquet:parquet-hadoop:$parquetVersion")
+    implementation("dev.langchain4j:langchain4j-open-ai:1.9.1")
 
     // Koin for Ktor
     implementation("io.insert-koin:koin-ktor:$koinVersion")

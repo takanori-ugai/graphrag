@@ -26,6 +26,16 @@ data class Relationship(
     val sourceChunkId: String,
 )
 
+data class TextEmbedding(
+    val chunkId: String,
+    val vector: List<Double>,
+)
+
+data class EntityEmbedding(
+    val entityId: String,
+    val vector: List<Double>,
+)
+
 data class GraphExtractResult(
     val entities: List<Entity>,
     val relationships: List<Relationship>,

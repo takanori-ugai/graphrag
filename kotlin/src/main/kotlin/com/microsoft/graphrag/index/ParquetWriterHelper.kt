@@ -60,6 +60,38 @@ class ParquetWriterHelper {
             .noDefault()
             .endRecord()
 
+    private val textEmbeddingSchema: Schema =
+        SchemaBuilder
+            .record("TextEmbedding")
+            .fields()
+            .name("chunkId")
+            .type()
+            .stringType()
+            .noDefault()
+            .name("vector")
+            .type()
+            .array()
+            .items()
+            .doubleType()
+            .noDefault()
+            .endRecord()
+
+    private val entityEmbeddingSchema: Schema =
+        SchemaBuilder
+            .record("EntityEmbedding")
+            .fields()
+            .name("entityId")
+            .type()
+            .stringType()
+            .noDefault()
+            .name("vector")
+            .type()
+            .array()
+            .items()
+            .doubleType()
+            .noDefault()
+            .endRecord()
+
     fun writeEntities(
         path: Path,
         entities: List<Entity>,
@@ -103,6 +135,50 @@ class ParquetWriterHelper {
                             put("type", rel.type)
                             put("description", rel.description)
                             put("sourceChunkId", rel.sourceChunkId)
+                        },
+                    )
+                }
+            }
+    }
+
+    fun writeTextEmbeddings(
+        path: Path,
+        embeddings: List<TextEmbedding>,
+    ) {
+        ensureParent(path)
+        AvroParquetWriter
+            .builder<GenericData.Record>(LocalOutputFile(path))
+            .withSchema(textEmbeddingSchema)
+            .withCompressionCodec(CompressionCodecName.SNAPPY)
+            .build()
+            .use { writer ->
+                embeddings.forEach { emb ->
+                    writer.write(
+                        GenericData.Record(textEmbeddingSchema).apply {
+                            put("chunkId", emb.chunkId)
+                            put("vector", emb.vector)
+                        },
+                    )
+                }
+            }
+    }
+
+    fun writeEntityEmbeddings(
+        path: Path,
+        embeddings: List<EntityEmbedding>,
+    ) {
+        ensureParent(path)
+        AvroParquetWriter
+            .builder<GenericData.Record>(LocalOutputFile(path))
+            .withSchema(entityEmbeddingSchema)
+            .withCompressionCodec(CompressionCodecName.SNAPPY)
+            .build()
+            .use { writer ->
+                embeddings.forEach { emb ->
+                    writer.write(
+                        GenericData.Record(entityEmbeddingSchema).apply {
+                            put("entityId", emb.entityId)
+                            put("vector", emb.vector)
                         },
                     )
                 }
