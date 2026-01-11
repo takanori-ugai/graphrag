@@ -7,6 +7,9 @@ import com.microsoft.graphrag.index.CommunityReport
 import dev.langchain4j.model.chat.response.ChatResponse
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -129,7 +132,6 @@ class GlobalSearchEngine(
         val fullPrompt = "$prompt\n\nUser question: $question"
         val answerText = streamAnswer(fullPrompt)
         val outputTokens = tokenCount(answerText)
-        callbacks.forEach { it.onLLMNewToken(answerText) }
         return QueryResult(
             answer = answerText,
             context = emptyList(),
@@ -155,6 +157,22 @@ class GlobalSearchEngine(
                     }
                 }.filter { it.score > 0 || allowGeneralKnowledge }
         val sorted = keyPoints.sortedByDescending { it.score }
+        if (sorted.isEmpty() && !allowGeneralKnowledge) {
+            callbacks.forEach { it.onReduceResponseStart("") }
+            callbacks.forEach { it.onReduceResponseEnd(NO_DATA_ANSWER) }
+            return QueryResult(
+                answer = NO_DATA_ANSWER,
+                context = emptyList(),
+                contextRecords = emptyMap(),
+                llmCalls = 0,
+                promptTokens = 0,
+                outputTokens = 0,
+                llmCallsCategories = mapOf("reduce" to 0),
+                promptTokensCategories = mapOf("reduce" to 0),
+                outputTokensCategories = mapOf("reduce" to 0),
+                contextText = "",
+            )
+        }
         val buffer = StringBuilder()
         var tokens = 0
         for (point in sorted) {
@@ -173,9 +191,10 @@ class GlobalSearchEngine(
                 .let { prompt -> if (allowGeneralKnowledge) "$prompt\n$generalKnowledgeInstruction" else prompt }
         val promptTokens = tokenCount(reducePrompt)
         val fullPrompt = "$reducePrompt\n\nUser question: $question"
+        callbacks.forEach { it.onReduceResponseStart(contextText) }
         val answerText = streamAnswer(fullPrompt)
         val outputTokens = tokenCount(answerText)
-        callbacks.forEach { it.onLLMNewToken(answerText) }
+        callbacks.forEach { it.onReduceResponseEnd(answerText) }
         return QueryResult(
             answer = answerText,
             context = emptyList(),
@@ -228,12 +247,79 @@ class GlobalSearchEngine(
         return future.get()
     }
 
+    fun streamSearch(question: String): Flow<String> =
+        callbackFlow {
+            val contextChunks = buildContextChunks()
+            callbacks.forEach { it.onContext(mapOf("reports" to contextChunks.map { mutableMapOf("in_context" to "true") })) }
+            callbacks.forEach { it.onMapResponseStart(contextChunks) }
+
+            val mapResponses = contextChunks.map { chunk -> mapStep(question, chunk) }
+            callbacks.forEach { it.onMapResponseEnd(mapResponses) }
+
+            val keyPoints =
+                mapResponses
+                    .flatMapIndexed { idx, result ->
+                        parsePoints(result.answer).map { point ->
+                            point.copy(description = "----Analyst ${idx + 1}----\nImportance Score: ${point.score}\n${point.description}")
+                        }
+                    }.filter { it.score > 0 || allowGeneralKnowledge }
+            val sorted = keyPoints.sortedByDescending { it.score }
+            if (sorted.isEmpty() && !allowGeneralKnowledge) {
+                trySend(NO_DATA_ANSWER)
+                close()
+                return@callbackFlow
+            }
+            val buffer = StringBuilder()
+            var tokens = 0
+            for (point in sorted) {
+                val text = point.description + "\n\n"
+                val newTokens = tokenCount(text)
+                if (tokens + newTokens > maxContextTokens) break
+                buffer.append(text)
+                tokens += newTokens
+            }
+            val contextText = buffer.toString().trimEnd()
+            val reducePrompt =
+                reduceSystemPrompt
+                    .replace("{report_data}", contextText)
+                    .replace("{response_type}", responseType)
+                    .replace("{max_length}", reduceMaxLength.toString())
+                    .let { prompt ->
+                        if (allowGeneralKnowledge) "$prompt\n$generalKnowledgeInstruction" else prompt
+                    }
+            callbacks.forEach { it.onReduceResponseStart(contextText) }
+            val fullPrompt = "$reducePrompt\n\nUser question: $question"
+            val builder = StringBuilder()
+            streamingModel.chat(
+                fullPrompt,
+                object : StreamingChatResponseHandler {
+                    override fun onPartialResponse(partialResponse: String) {
+                        builder.append(partialResponse)
+                        callbacks.forEach { it.onLLMNewToken(partialResponse) }
+                        trySend(partialResponse)
+                    }
+
+                    override fun onCompleteResponse(response: ChatResponse) {
+                        callbacks.forEach { it.onReduceResponseEnd(builder.toString()) }
+                        close()
+                    }
+
+                    override fun onError(error: Throwable) {
+                        close(error)
+                    }
+                },
+            )
+            awaitClose {}
+        }
+
     private data class Point(
         val description: String,
         val score: Int,
     )
 
     companion object {
+        private const val NO_DATA_ANSWER = "I do not know."
+
         private val MAP_SYSTEM_PROMPT: String =
             """
             ---Role---

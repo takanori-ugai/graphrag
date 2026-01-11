@@ -11,4 +11,8 @@ interface QueryCallbacks {
     fun onMapResponseStart(mapContexts: List<String>) {}
 
     fun onMapResponseEnd(mapResponses: List<QueryResult>) {}
+
+    fun onReduceResponseStart(reduceContext: String) {}
+
+    fun onReduceResponseEnd(reduceResponse: String) {}
 }

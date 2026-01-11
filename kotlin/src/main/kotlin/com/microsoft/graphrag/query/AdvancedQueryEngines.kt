@@ -25,6 +25,9 @@ import dev.langchain4j.service.AiServices
 import dev.langchain4j.service.SystemMessage
 import dev.langchain4j.service.UserMessage
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.withContext
 import java.util.concurrent.CompletableFuture
 import kotlin.math.sqrt
@@ -77,11 +80,10 @@ class LocalQueryEngine(
                 communityProp = 0.25,
             )
         val prompt = buildPrompt(responseType, contextResult.contextText, driftQuery)
-        val answer = generate(prompt, question)
         callbacks.forEach { it.onContext(contextResult.contextRecords) }
+        val answer = generate(prompt, question)
         val promptTokens = encoding.countTokens(prompt)
         val answerTokens = encoding.countTokens(answer)
-        callbacks.forEach { it.onLLMNewToken(answer) }
         val llmCallsCategories = mapOf("response" to 1, "build_context" to contextResult.llmCalls)
         val promptTokensCategories = mapOf("response" to promptTokens, "build_context" to contextResult.promptTokens)
         val outputTokensCategories = mapOf("response" to answerTokens, "build_context" to contextResult.outputTokens)
@@ -130,29 +132,72 @@ class LocalQueryEngine(
     private suspend fun generate(
         systemPrompt: String,
         question: String,
-    ): String =
-        withContext(Dispatchers.IO) {
-            val finalPrompt = "$systemPrompt\n\nUser question: $question"
+    ): String {
+        val builder = StringBuilder()
+        val finalPrompt = "$systemPrompt\n\nUser question: $question"
+        val future = CompletableFuture<String>()
+        streamingModel.chat(
+            finalPrompt,
+            object : StreamingChatResponseHandler {
+                override fun onPartialResponse(partialResponse: String) {
+                    builder.append(partialResponse)
+                    callbacks.forEach { it.onLLMNewToken(partialResponse) }
+                }
+
+                override fun onCompleteResponse(response: ChatResponse) {
+                    future.complete(builder.toString())
+                }
+
+                override fun onError(error: Throwable) {
+                    future.completeExceptionally(error)
+                }
+            },
+        )
+        return runCatching { future.get() }.getOrElse { "No response generated." }
+    }
+
+    fun streamAnswer(
+        question: String,
+        responseType: String,
+        conversationHistory: List<String> = emptyList(),
+        driftQuery: String? = null,
+    ): Flow<String> =
+        callbackFlow {
+            val contextResult =
+                contextBuilder.buildContext(
+                    query = question,
+                    conversationHistory = toConversationHistory(conversationHistory),
+                    maxContextTokens = maxContextTokens,
+                    topKMappedEntities = topKEntities,
+                    topKRelationships = topKRelationships,
+                    topKClaims = topKClaims,
+                    topKCommunities = topKCommunities,
+                    textUnitProp = 0.5,
+                    communityProp = 0.25,
+                )
+            val prompt = buildPrompt(responseType, contextResult.contextText, driftQuery)
+            callbacks.forEach { it.onContext(contextResult.contextRecords) }
+            val finalPrompt = "$prompt\n\nUser question: $question"
             val builder = StringBuilder()
-            val future = CompletableFuture<String>()
             streamingModel.chat(
                 finalPrompt,
                 object : StreamingChatResponseHandler {
                     override fun onPartialResponse(partialResponse: String) {
                         builder.append(partialResponse)
                         callbacks.forEach { it.onLLMNewToken(partialResponse) }
+                        trySend(partialResponse)
                     }
 
                     override fun onCompleteResponse(response: ChatResponse) {
-                        future.complete(builder.toString())
+                        close()
                     }
 
                     override fun onError(error: Throwable) {
-                        future.completeExceptionally(error)
+                        close(error)
                     }
                 },
             )
-            runCatching { future.get() }.getOrElse { "No response generated." }
+            awaitClose {}
         }
 
     private val contextBuilder =
