@@ -1,5 +1,8 @@
 package com.microsoft.graphrag.query
 
+import com.knuddels.jtokkit.Encodings
+import com.knuddels.jtokkit.api.Encoding
+import com.knuddels.jtokkit.api.EncodingType
 import com.microsoft.graphrag.index.Claim
 import com.microsoft.graphrag.index.CommunityAssignment
 import com.microsoft.graphrag.index.CommunityReport
@@ -11,6 +14,7 @@ import com.microsoft.graphrag.index.Relationship
 import com.microsoft.graphrag.index.TextEmbedding
 import com.microsoft.graphrag.index.TextUnit
 import com.microsoft.graphrag.query.LocalSearchContextBuilder.ConversationHistory
+import com.microsoft.graphrag.query.QueryCallbacks
 import dev.langchain4j.model.embedding.EmbeddingModel
 import dev.langchain4j.model.openai.OpenAiChatModel
 import dev.langchain4j.model.output.Response
@@ -47,11 +51,14 @@ class LocalQueryEngine(
     private val maxContextTokens: Int = 12_000,
     private val columnDelimiter: String = "|",
     private val maxContextChars: Int = 800,
+    private val callbacks: List<QueryCallbacks> = emptyList(),
+    private val encoding: Encoding = Encodings.newLazyEncodingRegistry().getEncoding(EncodingType.CL100K_BASE),
 ) {
     suspend fun answer(
         question: String,
         responseType: String,
         conversationHistory: List<String> = emptyList(),
+        driftQuery: String? = null,
     ): QueryResult {
         val contextResult =
             contextBuilder.buildContext(
@@ -65,9 +72,26 @@ class LocalQueryEngine(
                 textUnitProp = 0.5,
                 communityProp = 0.25,
             )
-        val prompt = buildPrompt(responseType, contextResult.contextText)
+        val prompt = buildPrompt(responseType, contextResult.contextText, driftQuery)
         val answer = generate(prompt, question)
-        return QueryResult(answer = answer, context = contextResult.contextChunks)
+        callbacks.forEach { it.onContext(contextResult.contextRecords) }
+        val promptTokens = encoding.countTokens(prompt)
+        val answerTokens = encoding.countTokens(answer)
+        callbacks.forEach { it.onLLMNewToken(answer) }
+        val llmCallsCategories = mapOf("response" to 1, "build_context" to contextResult.llmCalls)
+        val promptTokensCategories = mapOf("response" to promptTokens, "build_context" to contextResult.promptTokens)
+        val outputTokensCategories = mapOf("response" to answerTokens, "build_context" to contextResult.outputTokens)
+        return QueryResult(
+            answer = answer,
+            context = contextResult.contextChunks,
+            contextRecords = contextResult.contextRecords,
+            llmCalls = contextResult.llmCalls + 1,
+            promptTokens = contextResult.promptTokens + promptTokens,
+            outputTokens = contextResult.outputTokens + answerTokens,
+            llmCallsCategories = llmCallsCategories,
+            promptTokensCategories = promptTokensCategories,
+            outputTokensCategories = outputTokensCategories,
+        )
     }
 
     suspend fun buildContext(
@@ -90,10 +114,14 @@ class LocalQueryEngine(
     private fun buildPrompt(
         responseType: String,
         context: String,
+        driftQuery: String?,
     ): String =
         LOCAL_SEARCH_SYSTEM_PROMPT
             .replace("{context_data}", context)
             .replace("{response_type}", responseType)
+            .let { prompt ->
+                if (prompt.contains("{global_query}")) prompt.replace("{global_query}", driftQuery ?: "") else prompt
+            }
 
     private suspend fun generate(
         systemPrompt: String,

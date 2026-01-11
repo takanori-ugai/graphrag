@@ -1,5 +1,8 @@
 package com.microsoft.graphrag.query
 
+import com.knuddels.jtokkit.Encodings
+import com.knuddels.jtokkit.api.Encoding
+import com.knuddels.jtokkit.api.EncodingType
 import com.microsoft.graphrag.index.Claim
 import com.microsoft.graphrag.index.CommunityAssignment
 import com.microsoft.graphrag.index.CommunityReport
@@ -10,9 +13,6 @@ import com.microsoft.graphrag.index.LocalVectorStore
 import com.microsoft.graphrag.index.Relationship
 import com.microsoft.graphrag.index.TextEmbedding
 import com.microsoft.graphrag.index.TextUnit
-import com.knuddels.jtokkit.Encodings
-import com.knuddels.jtokkit.api.Encoding
-import com.knuddels.jtokkit.api.EncodingType
 import dev.langchain4j.model.embedding.EmbeddingModel
 import dev.langchain4j.model.output.Response
 import kotlinx.coroutines.Dispatchers
@@ -62,6 +62,13 @@ class LocalSearchContextBuilder(
     data class LocalContextResult(
         val contextText: String,
         val contextChunks: List<QueryContextChunk>,
+        val contextRecords: Map<String, List<MutableMap<String, String>>>,
+        val llmCalls: Int = 0,
+        val promptTokens: Int = 0,
+        val outputTokens: Int = 0,
+        val llmCallsCategories: Map<String, Int> = emptyMap(),
+        val promptTokensCategories: Map<String, Int> = emptyMap(),
+        val outputTokensCategories: Map<String, Int> = emptyMap(),
     )
 
     @Suppress("LongMethod", "ReturnCount", "LongParameterList", "CyclomaticComplexMethod")
@@ -72,6 +79,7 @@ class LocalSearchContextBuilder(
         excludeEntityNames: List<String> = emptyList(),
         conversationHistoryMaxTurns: Int = 5,
         conversationHistoryUserTurnsOnly: Boolean = true,
+        conversationHistoryRecencyBias: Boolean = true,
         maxContextTokens: Int = 8000,
         textUnitProp: Double = 0.5,
         communityProp: Double = 0.25,
@@ -85,6 +93,8 @@ class LocalSearchContextBuilder(
         relationshipRankingAttribute: String = "rank",
         useCommunitySummary: Boolean = false,
         minCommunityRank: Int = 0,
+        returnCandidateContext: Boolean = false,
+        contextCallbacks: List<(LocalContextResult) -> Unit> = emptyList(),
     ): LocalContextResult {
         require(communityProp + textUnitProp <= 1.0) { "community_prop + text_unit_prop must be <= 1" }
 
@@ -112,7 +122,12 @@ class LocalSearchContextBuilder(
 
         val sections = mutableListOf<String>()
         val usedChunks = mutableListOf<QueryContextChunk>()
+        val contextRecords = mutableMapOf<String, MutableList<MutableMap<String, String>>>()
         var remainingTokens = maxContextTokens
+        val selectedIdentifiers =
+            selectedEntities
+                .flatMap { listOf(it.id, it.name) }
+                .toSet()
 
         // conversation history context
         if (conversationHistory != null && conversationHistory.turns.isNotEmpty()) {
@@ -121,6 +136,7 @@ class LocalSearchContextBuilder(
                     conversationHistory = conversationHistory,
                     includeUserOnly = conversationHistoryUserTurnsOnly,
                     maxQaTurns = conversationHistoryMaxTurns,
+                    recencyBias = conversationHistoryRecencyBias,
                 )
             val tokens = tokenCount(historySection)
             if (tokens <= remainingTokens) {
@@ -139,6 +155,8 @@ class LocalSearchContextBuilder(
                 includeRank = includeCommunityRank,
                 minCommunityRank = minCommunityRank,
                 topK = topKCommunities,
+                returnCandidateContext = returnCandidateContext,
+                contextRecords = contextRecords,
             )
         if (communitySection.isNotBlank()) {
             sections += communitySection
@@ -153,6 +171,8 @@ class LocalSearchContextBuilder(
                 selectedEntities = selectedEntities,
                 includeEntityRank = includeEntityRank,
                 tokenBudget = localTokens,
+                returnCandidateContext = returnCandidateContext,
+                contextRecords = contextRecords,
             )
         if (entitySection.isNotBlank()) {
             sections += entitySection
@@ -166,6 +186,9 @@ class LocalSearchContextBuilder(
                 relationshipRankingAttribute = relationshipRankingAttribute,
                 topK = topKRelationships,
                 tokenBudget = localTokens - entityTokens,
+                returnCandidateContext = returnCandidateContext,
+                contextRecords = contextRecords,
+                selectedIdentifiers = selectedIdentifiers,
             )
         if (relationshipSection.isNotBlank()) {
             sections += relationshipSection
@@ -177,6 +200,9 @@ class LocalSearchContextBuilder(
                 selectedEntities = selectedEntities,
                 topK = topKClaims,
                 tokenBudget = localTokens - entityTokens - relationshipTokens,
+                contextRecords = contextRecords,
+                returnCandidateContext = returnCandidateContext,
+                selectedIdentifiers = selectedIdentifiers,
             )
         if (claimSection.isNotBlank()) {
             sections += claimSection
@@ -186,17 +212,29 @@ class LocalSearchContextBuilder(
         var remainingLocalTokens = localTokens - entityTokens - relationshipTokens - claimTokens
         for ((covType, covariateList) in covariates) {
             if (remainingLocalTokens <= 0) break
-            val (covSection, covTokens) = buildCovariateSection(covType, covariateList, selectedEntities, remainingLocalTokens)
+            val (covSection, covTokens) =
+                buildCovariateSection(
+                    covType,
+                    covariateList,
+                    selectedEntities,
+                    remainingLocalTokens,
+                    returnCandidateContext,
+                    contextRecords,
+                )
             if (covSection.isNotBlank()) {
                 sections += covSection
                 remainingTokens -= covTokens
                 remainingLocalTokens -= covTokens
+                if (returnCandidateContext) {
+                    // mark in-context covariates
+                    contextRecords.getOrPut(covType.lowercase()) { mutableListOf() }.forEach { it["in_context"] = "true" }
+                }
             }
         }
 
         // sources
         val textUnitTokens = remainingTokens.coerceAtMost((maxContextTokens * textUnitProp).toInt())
-        val sourceResult = buildSourceSection(selectedEntities, textUnitTokens)
+        val sourceResult = buildSourceSection(selectedEntities, textUnitTokens, returnCandidateContext, contextRecords)
         if (sourceResult.section.isNotBlank()) {
             sections += sourceResult.section
             usedChunks += sourceResult.chunks
@@ -204,7 +242,21 @@ class LocalSearchContextBuilder(
 
         val contextText = sections.joinToString(separator = "\n\n")
         val finalChunks = if (usedChunks.isNotEmpty()) usedChunks else selectedEntities.map { entityChunk(it) }
-        return LocalContextResult(contextText = contextText, contextChunks = finalChunks)
+        val promptTokens = tokenCount(contextText)
+        val result =
+            LocalContextResult(
+                contextText = contextText,
+                contextChunks = finalChunks,
+                contextRecords = contextRecords,
+                llmCalls = 0,
+                promptTokens = promptTokens,
+                outputTokens = 0,
+                llmCallsCategories = mapOf("build_context" to 0),
+                promptTokensCategories = mapOf("build_context" to promptTokens),
+                outputTokensCategories = mapOf("build_context" to 0),
+            )
+        contextCallbacks.forEach { it(result) }
+        return result
     }
 
     private suspend fun mapQueryToEntities(
@@ -238,47 +290,109 @@ class LocalSearchContextBuilder(
         conversationHistory: ConversationHistory,
         includeUserOnly: Boolean,
         maxQaTurns: Int,
+        recencyBias: Boolean,
     ): String {
-        val header = "turn$columnDelimiter${"text"}"
-        val turns =
-            if (includeUserOnly) {
-                conversationHistory.turns.filter { it.role == ConversationTurn.Role.USER }
-            } else {
-                conversationHistory.turns
+        val header = "turn$columnDelimiter${"content"}"
+        var qaTurns =
+            buildList {
+                var currentUser: ConversationTurn? = null
+                val buffer = mutableListOf<ConversationTurn>()
+                for (turn in conversationHistory.turns) {
+                    if (turn.role == ConversationTurn.Role.USER) {
+                        if (currentUser != null) add(QATurn(user = currentUser, answers = buffer.toList()))
+                        currentUser = turn
+                        buffer.clear()
+                    } else {
+                        buffer += turn
+                    }
+                }
+                if (currentUser != null) add(QATurn(user = currentUser, answers = buffer.toList()))
             }
+        if (includeUserOnly) {
+            qaTurns = qaTurns.map { QATurn(user = it.user, answers = emptyList()) }
+        }
+        if (recencyBias) qaTurns = qaTurns.asReversed()
+        if (maxQaTurns > 0 && qaTurns.size > maxQaTurns) qaTurns = qaTurns.take(maxQaTurns)
+
         val rows =
-            turns
-                .takeLast(maxQaTurns)
-                .mapIndexed { index, turn ->
-                    "${index + 1}$columnDelimiter${turn.content}"
-                }.joinToString("\n")
+            buildString {
+                qaTurns.forEach { turn ->
+                    appendLine("${ConversationTurn.Role.USER.name.lowercase()}$columnDelimiter${turn.user.content}")
+                    turn.answers.forEach { ans ->
+                        appendLine("${ConversationTurn.Role.ASSISTANT.name.lowercase()}$columnDelimiter${ans.content}")
+                    }
+                }
+            }.trimEnd()
         return if (rows.isBlank()) "" else buildSection("Conversation", header, rows)
     }
+
+    private data class QATurn(
+        val user: ConversationTurn,
+        val answers: List<ConversationTurn>,
+    )
 
     private fun buildEntitySection(
         selectedEntities: List<Entity>,
         includeEntityRank: Boolean,
         tokenBudget: Int,
+        returnCandidateContext: Boolean,
+        contextRecords: MutableMap<String, MutableList<MutableMap<String, String>>>,
     ): Pair<String, Int> {
         if (selectedEntities.isEmpty()) return "" to 0
+        val sortedEntities =
+            selectedEntities.sortedByDescending { entity ->
+                entityRank(entity).toDoubleOrNull() ?: 0.0
+            }
         val summariesById = entitySummaries.associateBy { it.entityId }
+        val attributeKeys =
+            sortedEntities
+                .firstOrNull()
+                ?.attributes
+                ?.keys
+                ?.toList() ?: emptyList()
         val headerParts = mutableListOf("id", "entity", "description")
         if (includeEntityRank) headerParts += "rank"
+        headerParts.addAll(attributeKeys)
         val header = headerParts.joinToString(columnDelimiter)
         val builder = StringBuilder("-----Entities-----\n$header\n")
         var tokens = tokenCount(builder.toString())
+        val includedIds = mutableSetOf<String>()
+        val records = mutableListOf<MutableMap<String, String>>()
 
-        for (entity in selectedEntities) {
-            val description = summariesById[entity.id]?.summary ?: ""
-            val cells = mutableListOf(entity.id, entity.name, description)
-            if (includeEntityRank) cells += "0"
+        for (entity in sortedEntities) {
+            val description = summariesById[entity.id]?.summary ?: entity.description.orEmpty()
+            val cells = mutableListOf(entity.shortId ?: entity.id, entity.name, description)
+            if (includeEntityRank) cells += entityRank(entity)
+            attributeKeys.forEach { key -> cells += (entity.attributes[key] ?: "") }
             val row = cells.joinToString(columnDelimiter) + "\n"
             val rowTokens = tokenCount(row)
             if (tokens + rowTokens > tokenBudget) break
             builder.append(row)
             tokens += rowTokens
+            includedIds += entity.id
+            records +=
+                headerParts
+                    .zip(cells)
+                    .toMap()
+                    .toMutableMap()
+                    .apply { this["in_context"] = "true" }
         }
         val text = builder.toString().trimEnd()
+        if (records.isNotEmpty()) contextRecords["entities"] = records.toMutableList()
+
+        if (returnCandidateContext) {
+            val candidateRecords =
+                sortedEntities.map { entity ->
+                    val description = summariesById[entity.id]?.summary ?: entity.description.orEmpty()
+                    val cells = mutableListOf(entity.shortId ?: entity.id, entity.name, description)
+                    if (includeEntityRank) cells += entityRank(entity)
+                    attributeKeys.forEach { key -> cells += (entity.attributes[key] ?: "") }
+                    val record = headerParts.zip(cells).toMap().toMutableMap()
+                    record["in_context"] = if (entity.id in includedIds) "true" else "false"
+                    record
+                }
+            contextRecords["entities"] = candidateRecords.toMutableList()
+        }
         return if (text.isBlank()) "" to 0 else text to tokens
     }
 
@@ -289,51 +403,184 @@ class LocalSearchContextBuilder(
         relationshipRankingAttribute: String,
         topK: Int,
         tokenBudget: Int,
+        returnCandidateContext: Boolean,
+        contextRecords: MutableMap<String, MutableList<MutableMap<String, String>>>,
+        selectedIdentifiers: Set<String>,
     ): Pair<String, Int> {
         if (selectedEntities.isEmpty() || relationships.isEmpty()) return "" to 0
-        val selectedIds = selectedEntities.map { it.id }.toSet()
-        val filtered =
-            relationships
-                .filter { rel -> rel.sourceId in selectedIds || rel.targetId in selectedIds }
-                .sortedWith(
-                    compareByDescending<Relationship> {
-                        when (relationshipRankingAttribute.lowercase()) {
-                            "weight" -> it.description?.length ?: 0
-                            else -> it.description?.length ?: 0
-                        }
-                    },
-                ).take(topK * selectedEntities.size)
-
+        val filtered = filterRelationships(selectedIdentifiers, topK, relationshipRankingAttribute)
         if (filtered.isEmpty()) return "" to 0
-        val headers = mutableListOf("source", "target", "type", "description")
+
+        val headers = mutableListOf("id", "source", "target", "type", "description")
         if (includeRelationshipWeight) headers += "weight"
+        val attributeKeys =
+            filtered
+                .firstOrNull()
+                ?.attributes
+                ?.keys
+                ?.filterNot { key -> headers.contains(key) || key.equals("weight", ignoreCase = true) }
+                ?: emptyList()
+        headers.addAll(attributeKeys)
         val header = headers.joinToString(columnDelimiter)
         val builder = StringBuilder("-----Relationships-----\n$header\n")
         var tokens = tokenCount(builder.toString())
+        val includedIds = mutableSetOf<String>()
+        val records = mutableListOf<MutableMap<String, String>>()
 
         for (rel in filtered) {
-            val rowParts = mutableListOf(rel.sourceId, rel.targetId, rel.type, rel.description ?: "")
-            if (includeRelationshipWeight) {
-                rowParts += rel.description?.length?.toString() ?: ""
-            }
+            val rowParts =
+                mutableListOf(
+                    rel.shortId ?: rel.id.orEmpty(),
+                    rel.sourceId,
+                    rel.targetId,
+                    rel.type,
+                    rel.description ?: "",
+                )
+            if (includeRelationshipWeight) rowParts += (rel.weight?.toString() ?: "")
+            attributeKeys.forEach { key -> rowParts += (rel.attributes[key] ?: "") }
             val row = rowParts.joinToString(columnDelimiter) + "\n"
             val rowTokens = tokenCount(row)
             if (tokens + rowTokens > tokenBudget) break
             builder.append(row)
             tokens += rowTokens
+            val record = headers.zip(rowParts).toMap().toMutableMap()
+            record["in_context"] = "true"
+            includedIds += rel.id ?: rel.shortId.orEmpty()
+            records += record
         }
         val text = builder.toString().trimEnd()
+        if (records.isNotEmpty()) contextRecords["relationships"] = records.toMutableList()
+        if (returnCandidateContext) {
+            val candidateRelationships =
+                sortedRelationshipsForCandidates(
+                    selectedEntities = selectedEntities,
+                    rankingAttribute = relationshipRankingAttribute,
+                )
+            val candidateRecords =
+                candidateRelationships.map { rel ->
+                    val rowParts =
+                        mutableListOf(
+                            rel.shortId ?: rel.id.orEmpty(),
+                            rel.sourceId,
+                            rel.targetId,
+                            rel.type,
+                            rel.description ?: "",
+                        )
+                    if (includeRelationshipWeight) rowParts += (rel.weight?.toString() ?: "")
+                    attributeKeys.forEach { key -> rowParts += (rel.attributes[key] ?: "") }
+                    val record = headers.zip(rowParts).toMap().toMutableMap()
+                    record["in_context"] = if ((rel.id ?: rel.shortId.orEmpty()) in includedIds) "true" else "false"
+                    record
+                }
+            contextRecords["relationships"] = candidateRecords.toMutableList()
+        }
         return if (text.isBlank()) "" to 0 else text to tokens
     }
+
+    private fun filterRelationships(
+        selectedIdentifiers: Set<String>,
+        topK: Int,
+        rankingAttribute: String,
+    ): List<Relationship> {
+        if (selectedIdentifiers.isEmpty()) return emptyList()
+
+        val inNetwork =
+            relationships
+                .filter { rel -> rel.sourceId in selectedIdentifiers && rel.targetId in selectedIdentifiers }
+                .sortedByDescending { relationshipRankingValue(it, rankingAttribute) }
+
+        val outNetwork =
+            relationships
+                .filter { rel ->
+                    (rel.sourceId in selectedIdentifiers) xor (rel.targetId in selectedIdentifiers)
+                }
+        if (outNetwork.isEmpty()) return inNetwork
+
+        val linkCounts =
+            outNetwork
+                .flatMap { listOf(it.sourceId, it.targetId) }
+                .filterNot { it in selectedIdentifiers }
+                .groupingBy { it }
+                .eachCount()
+
+        val sortedOutNetwork =
+            outNetwork.sortedWith(
+                compareByDescending<Relationship> { relationshipLinkCount(it, selectedIdentifiers, linkCounts) }
+                    .thenByDescending { relationshipRankingValue(it, rankingAttribute) },
+            )
+
+        val relationshipBudget = topK * selectedIdentifiers.size
+        return inNetwork + sortedOutNetwork.take(relationshipBudget)
+    }
+
+    private fun relationshipLinkCount(
+        relationship: Relationship,
+        selectedIds: Set<String>,
+        linkCounts: Map<String, Int>,
+    ): Int {
+        val outNetworkEntity =
+            if (relationship.sourceId !in selectedIds) {
+                relationship.sourceId
+            } else {
+                relationship.targetId
+            }
+        return linkCounts[outNetworkEntity] ?: 0
+    }
+
+    private fun relationshipRankingValue(
+        relationship: Relationship,
+        rankingAttribute: String,
+    ): Double =
+        when (rankingAttribute.lowercase()) {
+            "rank" -> relationship.rank ?: 0.0
+            "weight" -> relationship.weight ?: 0.0
+            else -> relationship.attributes[rankingAttribute]?.toDoubleOrNull() ?: 0.0
+        }
+
+    private fun sortedRelationshipsForCandidates(
+        selectedEntities: List<Entity>,
+        rankingAttribute: String,
+    ): List<Relationship> {
+        val selectedIds =
+            selectedEntities
+                .flatMap { listOf(it.id, it.name) }
+                .toSet()
+        val candidate =
+            relationships.filter { rel -> rel.sourceId in selectedIds || rel.targetId in selectedIds }
+        if (candidate.isEmpty()) return candidate
+
+        val linkCounts =
+            candidate
+                .flatMap { listOf(it.sourceId, it.targetId) }
+                .filterNot { it in selectedIds }
+                .groupingBy { it }
+                .eachCount()
+
+        return candidate.sortedWith(
+            compareByDescending<Relationship> { relationshipLinkCount(it, selectedIds, linkCounts) }
+                .thenByDescending { relationshipRankingValue(it, rankingAttribute) },
+        )
+    }
+
+    private fun entityRank(entity: Entity): String {
+        val rankValue = entity.rank ?: relationshipCount(entity.id).toDouble()
+        return rankValue.toString()
+    }
+
+    private fun relationshipCount(entityId: String): Int =
+        relationships.count { rel -> rel.sourceId == entityId || rel.targetId == entityId }
 
     @Suppress("ReturnCount")
     private fun buildClaimSection(
         selectedEntities: List<Entity>,
         tokenBudget: Int,
         topK: Int = 10,
+        contextRecords: MutableMap<String, MutableList<MutableMap<String, String>>>,
+        returnCandidateContext: Boolean = false,
+        selectedIdentifiers: Set<String>,
     ): Pair<String, Int> {
         if (selectedEntities.isEmpty() || claims.isEmpty()) return "" to 0
-        val selectedIds = selectedEntities.map { it.id }.toSet()
+        val selectedIds = selectedIdentifiers
         val filtered =
             claims
                 .filter { claim -> claim.subject in selectedIds || claim.`object` in selectedIds }
@@ -344,6 +591,7 @@ class LocalSearchContextBuilder(
                 .joinToString(columnDelimiter)
         val builder = StringBuilder("-----Claims-----\n$header\n")
         var tokens = tokenCount(builder.toString())
+        val records = mutableListOf<MutableMap<String, String>>()
         for (claim in filtered) {
             val row =
                 listOf(
@@ -358,8 +606,39 @@ class LocalSearchContextBuilder(
             if (tokens + rowTokens > tokenBudget) break
             builder.append(row)
             tokens += rowTokens
+            val record =
+                mutableMapOf(
+                    "subject" to claim.subject,
+                    "object" to claim.`object`,
+                    "claim_type" to claim.claimType,
+                    "status" to claim.status,
+                    "description" to claim.description,
+                    "source_text" to claim.sourceText,
+                    "in_context" to "true",
+                )
+            records += record
         }
         val text = builder.toString().trimEnd()
+        if (records.isNotEmpty()) contextRecords["claims"] = records.toMutableList()
+        // candidate claims retain ordering and mark out-of-context rows
+        if (returnCandidateContext) {
+            val candidateRecords =
+                claims
+                    .filter { claim -> claim.subject in selectedIds || claim.`object` in selectedIds }
+                    .map { claim ->
+                        mutableMapOf(
+                            "subject" to claim.subject,
+                            "object" to claim.`object`,
+                            "claim_type" to claim.claimType,
+                            "status" to claim.status,
+                            "description" to claim.description,
+                            "source_text" to claim.sourceText,
+                            "in_context" to
+                                if (records.any { it["subject"] == claim.subject && it["object"] == claim.`object` }) "true" else "false",
+                        )
+                    }
+            contextRecords["claims"] = candidateRecords.toMutableList()
+        }
         return if (text.isBlank()) "" to 0 else text to tokens
     }
 
@@ -369,18 +648,29 @@ class LocalSearchContextBuilder(
         covariateList: List<Covariate>,
         selectedEntities: List<Entity>,
         tokenBudget: Int,
+        returnCandidateContext: Boolean,
+        contextRecords: MutableMap<String, MutableList<MutableMap<String, String>>>,
     ): Pair<String, Int> {
         if (covariateList.isEmpty() || selectedEntities.isEmpty()) return "" to 0
-        val selectedIds = selectedEntities.map { it.id }.toSet()
+        val selectedIds =
+            selectedEntities
+                .flatMap { listOf(it.id, it.name) }
+                .toSet()
         val filtered = covariateList.filter { it.subjectId in selectedIds }
         if (filtered.isEmpty()) return "" to 0
 
-        val attributeKeys = filtered.firstOrNull()?.attributes?.keys?.toList() ?: emptyList()
+        val attributeKeys =
+            filtered
+                .firstOrNull()
+                ?.attributes
+                ?.keys
+                ?.toList() ?: emptyList()
         val headerParts = mutableListOf("id", "entity")
         headerParts.addAll(attributeKeys)
         val header = headerParts.joinToString(columnDelimiter)
-        val builder = StringBuilder("-----${covariateType}-----\n$header\n")
+        val builder = StringBuilder("-----$covariateType-----\n$header\n")
         var tokens = tokenCount(builder.toString())
+        val records = mutableListOf<MutableMap<String, String>>()
 
         for (covariate in filtered) {
             val cells = mutableListOf(covariate.id, covariate.subjectId)
@@ -390,8 +680,28 @@ class LocalSearchContextBuilder(
             if (tokens + rowTokens > tokenBudget) break
             builder.append(row)
             tokens += rowTokens
+            records +=
+                headerParts
+                    .zip(cells)
+                    .toMap()
+                    .toMutableMap()
+                    .apply { this["in_context"] = "true" }
         }
         val text = builder.toString().trimEnd()
+        if (records.isNotEmpty()) contextRecords[covariateType.lowercase()] = records.toMutableList()
+
+        if (returnCandidateContext) {
+            val candidateRecords =
+                filtered.map { covariate ->
+                    val cells = mutableListOf(covariate.id, covariate.subjectId)
+                    attributeKeys.forEach { key -> cells += (covariate.attributes[key] ?: "") }
+                    val record = headerParts.zip(cells).toMap().toMutableMap()
+                    val inContext = records.any { it["id"] == covariate.id && it["in_context"] == "true" }
+                    record["in_context"] = if (inContext) "true" else "false"
+                    record
+                }
+            contextRecords[covariateType.lowercase()] = candidateRecords.toMutableList()
+        }
         return if (text.isBlank()) "" to 0 else text to tokens
     }
 
@@ -403,9 +713,14 @@ class LocalSearchContextBuilder(
         includeRank: Boolean,
         minCommunityRank: Int,
         topK: Int = 5,
+        returnCandidateContext: Boolean,
+        contextRecords: MutableMap<String, MutableList<MutableMap<String, String>>>,
     ): Pair<String, Int> {
         if (selectedEntities.isEmpty() || communities.isEmpty() || communityReports.isEmpty()) return "" to 0
-        val selectedIds = selectedEntities.map { it.id }.toSet()
+        val selectedIds =
+            selectedEntities
+                .flatMap { listOf(it.id, it.name) }
+                .toSet()
         val communityMatches =
             communities
                 .filter { it.entityId in selectedIds }
@@ -415,34 +730,84 @@ class LocalSearchContextBuilder(
         val selected =
             communityReports
                 .filter { report -> communityMatches.containsKey(report.communityId) }
-                .sortedByDescending { communityMatches[it.communityId] ?: 0 }
-                .filter { _ -> true }
-                .take(topK)
+                .filter { report -> (report.rank ?: 0.0) >= minCommunityRank }
+                .sortedWith(
+                    compareByDescending<CommunityReport> { communityMatches[it.communityId] ?: 0 }
+                        .thenByDescending { it.rank ?: 0.0 },
+                ).take(topK)
         if (selected.isEmpty()) return "" to 0
 
-        val headerParts = mutableListOf("report_id", "summary")
+        val attributeKeys =
+            selected
+                .firstOrNull()
+                ?.attributes
+                ?.keys
+                ?.toList() ?: emptyList()
+        val headerParts = mutableListOf("id", "title")
+        headerParts.addAll(attributeKeys)
+        headerParts += if (useCommunitySummary) "summary" else "content"
         if (includeRank) headerParts += "rank"
         val header = headerParts.joinToString(columnDelimiter)
         val builder = StringBuilder("-----Reports-----\n$header\n")
         var tokens = tokenCount(builder.toString())
+        val includedIds = mutableSetOf<String>()
+        val records = mutableListOf<MutableMap<String, String>>()
 
         for (report in selected) {
-            val summary = report.summary
-            val rowParts = mutableListOf(report.communityId.toString(), summary)
-            if (includeRank) rowParts += (minCommunityRank).toString()
+            val content = if (useCommunitySummary) report.summary else report.fullContent ?: report.summary
+            val rowParts =
+                mutableListOf(
+                    report.shortId ?: report.id ?: report.communityId.toString(),
+                    report.title ?: report.communityId.toString(),
+                )
+            attributeKeys.forEach { key -> rowParts += (report.attributes[key] ?: "") }
+            rowParts += content
+            if (includeRank) rowParts += (report.rank?.toString() ?: "")
             val row = rowParts.joinToString(columnDelimiter) + "\n"
             val rowTokens = tokenCount(row)
             if (tokens + rowTokens > tokenBudget) break
             builder.append(row)
             tokens += rowTokens
+            val record = headerParts.zip(rowParts).toMap().toMutableMap()
+            record["in_context"] = "true"
+            includedIds += report.id ?: report.shortId ?: report.communityId.toString()
+            records += record
         }
         val text = builder.toString().trimEnd()
+        if (records.isNotEmpty()) contextRecords["reports"] = records.toMutableList()
+
+        if (returnCandidateContext) {
+            val candidateRecords =
+                communityReports
+                    .filter { report -> communityMatches.containsKey(report.communityId) }
+                    .sortedWith(
+                        compareByDescending<CommunityReport> { communityMatches[it.communityId] ?: 0 }
+                            .thenByDescending { it.rank ?: 0.0 },
+                    ).map { report ->
+                        val content = if (useCommunitySummary) report.summary else report.fullContent ?: report.summary
+                        val rowParts =
+                            mutableListOf(
+                                report.shortId ?: report.id ?: report.communityId.toString(),
+                                report.title ?: report.communityId.toString(),
+                            )
+                        attributeKeys.forEach { key -> rowParts += (report.attributes[key] ?: "") }
+                        rowParts += content
+                        if (includeRank) rowParts += (report.rank?.toString() ?: "")
+                        val record = headerParts.zip(rowParts).toMap().toMutableMap()
+                        record["in_context"] =
+                            if ((report.id ?: report.shortId ?: report.communityId.toString()) in includedIds) "true" else "false"
+                        record
+                    }
+            contextRecords["reports"] = candidateRecords.toMutableList()
+        }
         return if (text.isBlank()) "" to 0 else text to tokens
     }
 
     private fun buildSourceSection(
         selectedEntities: List<Entity>,
         tokenBudget: Int,
+        returnCandidateContext: Boolean,
+        contextRecords: MutableMap<String, MutableList<MutableMap<String, String>>>,
     ): SourceSection {
         val selectedIds = selectedEntities.map { it.id }.toSet()
         val chunkIds =
@@ -453,7 +818,30 @@ class LocalSearchContextBuilder(
             .filter { rel -> rel.sourceId in selectedIds || rel.targetId in selectedIds }
             .forEach { rel -> chunkIds += rel.sourceChunkId }
 
-        val primaryUnits = textUnits.filter { it.chunkId in chunkIds }
+        val textUnitsById = textUnits.associateBy { it.id }
+        val relationshipById =
+            relationships.filter { rel -> rel.sourceId in selectedIds || rel.targetId in selectedIds }
+        val textUnitRelCounts =
+            relationshipById
+                .flatMap { rel -> rel.textUnitIds.map { it to rel } }
+                .groupingBy { it.first }
+                .eachCount()
+        val unitInfo =
+            selectedEntities
+                .flatMapIndexed { index, entity ->
+                    entity.textUnitIds
+                        .mapNotNull { tuId ->
+                            val tu = textUnitsById[tuId]
+                            if (tu != null) Triple(tu, index, textUnitRelCounts[tuId] ?: 0) else null
+                        }
+                }.sortedWith(compareBy<Triple<TextUnit, Int, Int>> { it.second }.thenByDescending { it.third })
+
+        val primaryUnits =
+            if (unitInfo.isNotEmpty()) {
+                unitInfo.map { it.first }
+            } else {
+                textUnits.filter { it.chunkId in chunkIds }
+            }
         val candidates =
             if (primaryUnits.isNotEmpty()) {
                 primaryUnits.map { it.id to it.text }
@@ -466,6 +854,7 @@ class LocalSearchContextBuilder(
         val builder = StringBuilder("-----Sources-----\n$header\n")
         val chunks = mutableListOf<QueryContextChunk>()
         var tokens = tokenCount(builder.toString())
+        val records = mutableListOf<MutableMap<String, String>>()
 
         for ((id, text) in candidates) {
             val row = "$id$columnDelimiter$text\n"
@@ -474,9 +863,24 @@ class LocalSearchContextBuilder(
             builder.append(row)
             tokens += rowTokens
             chunks += QueryContextChunk(id = id, text = text, score = 1.0)
+            records += mutableMapOf("source_id" to id, "text" to text, "in_context" to "true")
         }
 
         val section = builder.toString().trimEnd()
+        if (records.isNotEmpty()) contextRecords["sources"] = records.toMutableList()
+
+        if (returnCandidateContext) {
+            val candidateRecords =
+                candidates.map { (id, text) ->
+                    mutableMapOf(
+                        "source_id" to id,
+                        "text" to text,
+                        "in_context" to if (records.any { it["source_id"] == id && it["in_context"] == "true" }) "true" else "false",
+                    )
+                }
+            contextRecords["sources"] = candidateRecords.toMutableList()
+        }
+
         return if (section.isBlank()) SourceSection("", chunks) else SourceSection(section, chunks)
     }
 

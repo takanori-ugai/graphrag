@@ -23,6 +23,14 @@ data class QueryContextChunk(
 data class QueryResult(
     val answer: String,
     val context: List<QueryContextChunk>,
+    val contextRecords: Map<String, List<MutableMap<String, String>>> = emptyMap(),
+    val contextText: String = "",
+    val llmCalls: Int = 0,
+    val promptTokens: Int = 0,
+    val outputTokens: Int = 0,
+    val llmCallsCategories: Map<String, Int> = emptyMap(),
+    val promptTokensCategories: Map<String, Int> = emptyMap(),
+    val outputTokensCategories: Map<String, Int> = emptyMap(),
 )
 
 /**
