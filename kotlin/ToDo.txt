@@ -35,3 +35,4 @@ CLI/entry: Python graphrag/cli/query.py supports multi-index queries, streaming,
   - Context/data loading: Python query stack reads parquet tables via configured storage and supports multi-output
     setups; Kotlin QueryIndexLoader reads context.json/vector_store.json only and skips parquet/stats, so feature parity
     isn’t present.
+ I can also align map/reduce flows or DRIFT’s multi-step behavior beyond the prompt text.
