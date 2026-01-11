@@ -1,5 +1,10 @@
 package com.microsoft.graphrag.cli
 
+import com.microsoft.graphrag.index.defaultEmbeddingModel
+import com.microsoft.graphrag.query.BasicQueryEngine
+import com.microsoft.graphrag.query.QueryIndexLoader
+import dev.langchain4j.model.openai.OpenAiChatModel
+import kotlinx.coroutines.runBlocking
 import picocli.CommandLine
 import picocli.CommandLine.Command
 import picocli.CommandLine.Option
@@ -363,11 +368,44 @@ class QueryCommand : Runnable {
     var streaming: Boolean = false
 
     override fun run() {
-        println(
-            "query not yet implemented (method=$method, query=$query, root=$root, data=$data, " +
-                "communityLevel=$communityLevel, dynamicCommunitySelection=$dynamicCommunitySelection, " +
-                "responseType=$responseType, streaming=$streaming, verbose=$verbose, config=$config)",
-        )
+        val selectedMethod = method.lowercase()
+        if (selectedMethod != "basic") {
+            println("Only 'basic' query is implemented in Kotlin right now (requested=$method).")
+            return
+        }
+
+        val outputDir = (data ?: root.resolve("sample-index/output")).toAbsolutePath().normalize()
+        val indexData = QueryIndexLoader(outputDir).load()
+
+        val apiKey =
+            System.getenv("OPENAI_API_KEY")
+                ?: error("OPENAI_API_KEY environment variable is required for querying.")
+        val chatModel =
+            OpenAiChatModel
+                .builder()
+                .apiKey(apiKey)
+                .modelName("gpt-4o-mini")
+                .build()
+        val embeddingModel = defaultEmbeddingModel(apiKey)
+
+        val engine =
+            BasicQueryEngine(
+                chatModel = chatModel,
+                embeddingModel = embeddingModel,
+                vectorStore = indexData.vectorStore,
+                textUnits = indexData.textUnits,
+                textEmbeddings = indexData.textEmbeddings,
+                topK = 5,
+            )
+
+        val result = runBlocking { engine.answer(query, responseType) }
+        println(result.answer)
+        if (verbose) {
+            println("\nContext chunks used:")
+            result.context.forEach { chunk ->
+                println("- [${chunk.id}] score=${"%.3f".format(chunk.score)} ${chunk.text.take(120)}")
+            }
+        }
     }
 }
 

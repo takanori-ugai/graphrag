@@ -35,7 +35,15 @@ class LocalVectorStore(
         limit: Int = 5,
     ): List<Pair<String, Double>> {
         val payload = load() ?: return emptyList()
-        return linearSearch(payload.entityEmbeddings, query, limit)
+        return linearSearch(payload.entityEmbeddings.map { it.entityId to it.vector }, query, limit)
+    }
+
+    fun nearestTextChunks(
+        query: List<Double>,
+        limit: Int = 5,
+    ): List<Pair<String, Double>> {
+        val payload = load() ?: return emptyList()
+        return linearSearch(payload.textEmbeddings.map { it.chunkId to it.vector }, query, limit)
     }
 
     private fun ensureParent(p: Path) {
@@ -46,13 +54,13 @@ class LocalVectorStore(
     }
 
     private fun linearSearch(
-        embeddings: List<EntityEmbedding>,
+        embeddings: List<Pair<String, List<Double>>>,
         query: List<Double>,
         k: Int,
     ): List<Pair<String, Double>> {
         if (embeddings.isEmpty() || query.isEmpty()) return emptyList()
-        val vectors = embeddings.map { it.vector.toDoubleArray() }.toTypedArray()
-        val labels = embeddings.map { it.entityId }.toTypedArray()
+        val vectors = embeddings.map { it.second.toDoubleArray() }.toTypedArray()
+        val labels = embeddings.map { it.first }.toTypedArray()
         val search = LinearSearch(vectors, labels, EuclideanDistance())
         val q = query.toDoubleArray()
         val limit = k.coerceAtMost(vectors.size)
