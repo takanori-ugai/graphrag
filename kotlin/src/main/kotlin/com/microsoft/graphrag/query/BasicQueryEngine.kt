@@ -25,6 +25,8 @@ data class QueryResult(
     val context: List<QueryContextChunk>,
     val contextRecords: Map<String, List<MutableMap<String, String>>> = emptyMap(),
     val contextText: String = "",
+    val followUpQueries: List<String> = emptyList(),
+    val score: Double? = null,
     val llmCalls: Int = 0,
     val promptTokens: Int = 0,
     val outputTokens: Int = 0,

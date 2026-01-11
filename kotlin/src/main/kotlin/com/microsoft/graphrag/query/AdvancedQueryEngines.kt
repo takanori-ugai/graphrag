@@ -29,6 +29,12 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import java.util.concurrent.CompletableFuture
 import kotlin.math.sqrt
 
@@ -81,16 +87,18 @@ class LocalQueryEngine(
             )
         val prompt = buildPrompt(responseType, contextResult.contextText, driftQuery)
         callbacks.forEach { it.onContext(contextResult.contextRecords) }
-        val answer = generate(prompt, question)
+        val parsed = generate(prompt, question)
         val promptTokens = encoding.countTokens(prompt)
-        val answerTokens = encoding.countTokens(answer)
+        val answerTokens = encoding.countTokens(parsed.answer)
         val llmCallsCategories = mapOf("response" to 1, "build_context" to contextResult.llmCalls)
         val promptTokensCategories = mapOf("response" to promptTokens, "build_context" to contextResult.promptTokens)
         val outputTokensCategories = mapOf("response" to answerTokens, "build_context" to contextResult.outputTokens)
         return QueryResult(
-            answer = answer,
+            answer = parsed.answer,
             context = contextResult.contextChunks,
             contextRecords = contextResult.contextRecords,
+            followUpQueries = parsed.followUps,
+            score = parsed.score,
             llmCalls = contextResult.llmCalls + 1,
             promptTokens = contextResult.promptTokens + promptTokens,
             outputTokens = contextResult.outputTokens + answerTokens,
@@ -132,7 +140,7 @@ class LocalQueryEngine(
     private suspend fun generate(
         systemPrompt: String,
         question: String,
-    ): String {
+    ): ParsedAnswer {
         val builder = StringBuilder()
         val finalPrompt = "$systemPrompt\n\nUser question: $question"
         val future = CompletableFuture<String>()
@@ -153,7 +161,8 @@ class LocalQueryEngine(
                 }
             },
         )
-        return runCatching { future.get() }.getOrElse { "No response generated." }
+        val raw = runCatching { future.get() }.getOrElse { "No response generated." }
+        return parseStructuredAnswer(raw)
     }
 
     fun streamAnswer(
@@ -199,6 +208,27 @@ class LocalQueryEngine(
             )
             awaitClose {}
         }
+
+    private fun parseStructuredAnswer(raw: String): ParsedAnswer {
+        val fallback = ParsedAnswer(raw, emptyList(), null)
+        return runCatching {
+            val element = Json.parseToJsonElement(raw)
+            val obj = element as? JsonObject ?: return fallback
+            val response = obj["response"]?.jsonPrimitive?.content ?: raw
+            val followUps =
+                (obj["follow_up_queries"] as? JsonArray)
+                    ?.mapNotNull { it.jsonPrimitive.contentOrNull }
+                    .orEmpty()
+            val score = obj["score"]?.jsonPrimitive?.doubleOrNull
+            ParsedAnswer(response, followUps, score)
+        }.getOrElse { fallback }
+    }
+
+    private data class ParsedAnswer(
+        val answer: String,
+        val followUps: List<String>,
+        val score: Double?,
+    )
 
     private val contextBuilder =
         LocalSearchContextBuilder(

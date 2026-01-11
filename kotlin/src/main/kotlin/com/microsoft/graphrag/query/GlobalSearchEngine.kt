@@ -7,7 +7,10 @@ import com.microsoft.graphrag.index.CommunityReport
 import dev.langchain4j.model.chat.response.ChatResponse
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.serialization.json.Json
@@ -48,48 +51,52 @@ class GlobalSearchEngine(
     private val maxContextTokens: Int = 8_000,
     private val encoding: Encoding = Encodings.newLazyEncodingRegistry().getEncoding(EncodingType.CL100K_BASE),
 ) {
-    suspend fun search(question: String): GlobalSearchResult {
-        val contextChunks = buildContextChunks()
-        callbacks.forEach { it.onContext(mapOf("reports" to contextChunks.map { mutableMapOf("in_context" to "true") })) }
-        callbacks.forEach { it.onMapResponseStart(contextChunks) }
+    suspend fun search(question: String): GlobalSearchResult =
+        coroutineScope {
+            val contextChunks = buildContextChunks()
+            callbacks.forEach { it.onContext(mapOf("reports" to contextChunks.map { mutableMapOf("in_context" to "true") })) }
+            callbacks.forEach { it.onMapResponseStart(contextChunks) }
 
-        val mapResponses = contextChunks.map { chunk -> mapStep(question, chunk) }
-        callbacks.forEach { it.onMapResponseEnd(mapResponses) }
+            val mapResponses =
+                contextChunks
+                    .map { chunk -> async { mapStep(question, chunk) } }
+                    .awaitAll()
+            callbacks.forEach { it.onMapResponseEnd(mapResponses) }
 
-        val reduceResult = reduceStep(question, mapResponses)
+            val reduceResult = reduceStep(question, mapResponses)
 
-        val llmCallsCategories =
-            mapOf(
-                "build_context" to 0,
-                "map" to mapResponses.sumOf { it.llmCalls },
-                "reduce" to reduceResult.llmCalls,
+            val llmCallsCategories =
+                mapOf(
+                    "build_context" to 0,
+                    "map" to mapResponses.sumOf { it.llmCalls },
+                    "reduce" to reduceResult.llmCalls,
+                )
+            val promptTokensCategories =
+                mapOf(
+                    "build_context" to 0,
+                    "map" to mapResponses.sumOf { it.promptTokens },
+                    "reduce" to reduceResult.promptTokens,
+                )
+            val outputTokensCategories =
+                mapOf(
+                    "build_context" to 0,
+                    "map" to mapResponses.sumOf { it.outputTokens },
+                    "reduce" to reduceResult.outputTokens,
+                )
+
+            GlobalSearchResult(
+                answer = reduceResult.answer,
+                mapResponses = mapResponses,
+                reduceContextText = reduceResult.contextText,
+                contextRecords = mapOf("reports" to contextChunks.map { mutableMapOf("in_context" to "true") }),
+                llmCalls = llmCallsCategories.values.sum(),
+                promptTokens = promptTokensCategories.values.sum(),
+                outputTokens = outputTokensCategories.values.sum(),
+                llmCallsCategories = llmCallsCategories,
+                promptTokensCategories = promptTokensCategories,
+                outputTokensCategories = outputTokensCategories,
             )
-        val promptTokensCategories =
-            mapOf(
-                "build_context" to 0,
-                "map" to mapResponses.sumOf { it.promptTokens },
-                "reduce" to reduceResult.promptTokens,
-            )
-        val outputTokensCategories =
-            mapOf(
-                "build_context" to 0,
-                "map" to mapResponses.sumOf { it.outputTokens },
-                "reduce" to reduceResult.outputTokens,
-            )
-
-        return GlobalSearchResult(
-            answer = reduceResult.answer,
-            mapResponses = mapResponses,
-            reduceContextText = reduceResult.contextText,
-            contextRecords = mapOf("reports" to contextChunks.map { mutableMapOf("in_context" to "true") }),
-            llmCalls = llmCallsCategories.values.sum(),
-            promptTokens = promptTokensCategories.values.sum(),
-            outputTokens = outputTokensCategories.values.sum(),
-            llmCallsCategories = llmCallsCategories,
-            promptTokensCategories = promptTokensCategories,
-            outputTokensCategories = outputTokensCategories,
-        )
-    }
+        }
 
     private fun buildContextChunks(): List<String> {
         if (communityReports.isEmpty()) return emptyList()
@@ -253,7 +260,12 @@ class GlobalSearchEngine(
             callbacks.forEach { it.onContext(mapOf("reports" to contextChunks.map { mutableMapOf("in_context" to "true") })) }
             callbacks.forEach { it.onMapResponseStart(contextChunks) }
 
-            val mapResponses = contextChunks.map { chunk -> mapStep(question, chunk) }
+            val mapResponses =
+                kotlinx.coroutines.runBlocking {
+                    coroutineScope {
+                        contextChunks.map { chunk -> async { mapStep(question, chunk) } }.awaitAll()
+                    }
+                }
             callbacks.forEach { it.onMapResponseEnd(mapResponses) }
 
             val keyPoints =
@@ -265,6 +277,8 @@ class GlobalSearchEngine(
                     }.filter { it.score > 0 || allowGeneralKnowledge }
             val sorted = keyPoints.sortedByDescending { it.score }
             if (sorted.isEmpty() && !allowGeneralKnowledge) {
+                callbacks.forEach { it.onReduceResponseStart("") }
+                callbacks.forEach { it.onReduceResponseEnd(NO_DATA_ANSWER) }
                 trySend(NO_DATA_ANSWER)
                 close()
                 return@callbackFlow
