@@ -1,11 +1,16 @@
 package com.microsoft.graphrag.query
 
+import com.microsoft.graphrag.index.Claim
+import com.microsoft.graphrag.index.CommunityAssignment
 import com.microsoft.graphrag.index.CommunityReport
+import com.microsoft.graphrag.index.Covariate
 import com.microsoft.graphrag.index.Entity
 import com.microsoft.graphrag.index.EntitySummary
 import com.microsoft.graphrag.index.LocalVectorStore
+import com.microsoft.graphrag.index.Relationship
 import com.microsoft.graphrag.index.TextEmbedding
 import com.microsoft.graphrag.index.TextUnit
+import com.microsoft.graphrag.query.LocalSearchContextBuilder.ConversationHistory
 import dev.langchain4j.model.embedding.EmbeddingModel
 import dev.langchain4j.model.openai.OpenAiChatModel
 import dev.langchain4j.model.output.Response
@@ -17,9 +22,9 @@ import kotlinx.coroutines.withContext
 import kotlin.math.sqrt
 
 /**
- * Local search mirrors the Python local search by prioritizing entity-centric
- * context (entity summaries if available, otherwise source chunks). It falls back
- * to text-unit similarity if no entity vectors are present.
+ * Local search mirrors the Python local search by prioritizing entity-centric context (entity summaries if available,
+ * otherwise source chunks). It now also blends in relationships, claims, community reports, and optional conversation
+ * history, falling back to text-unit similarity if no entity vectors are present.
  */
 @Suppress("LongParameterList")
 class LocalQueryEngine(
@@ -30,105 +35,102 @@ class LocalQueryEngine(
     private val textEmbeddings: List<TextEmbedding>,
     private val entities: List<Entity>,
     private val entitySummaries: List<EntitySummary>,
+    private val relationships: List<Relationship>,
+    private val claims: List<Claim>,
+    private val covariates: Map<String, List<Covariate>>,
+    private val communities: List<CommunityAssignment>,
+    private val communityReports: List<CommunityReport>,
     private val topKEntities: Int = 5,
-    private val fallbackTopK: Int = 5,
+    private val topKRelationships: Int = 10,
+    private val topKClaims: Int = 10,
+    private val topKCommunities: Int = 3,
+    private val maxContextTokens: Int = 12_000,
+    private val columnDelimiter: String = "|",
     private val maxContextChars: Int = 800,
 ) {
     suspend fun answer(
         question: String,
         responseType: String,
+        conversationHistory: List<String> = emptyList(),
     ): QueryResult {
-        val context = buildContext(question)
-        val prompt = buildPrompt(responseType, context)
-        val answer = generate(prompt)
-        return QueryResult(answer = answer, context = context)
+        val contextResult =
+            contextBuilder.buildContext(
+                query = question,
+                conversationHistory = toConversationHistory(conversationHistory),
+                maxContextTokens = maxContextTokens,
+                topKMappedEntities = topKEntities,
+                topKRelationships = topKRelationships,
+                topKClaims = topKClaims,
+                topKCommunities = topKCommunities,
+                textUnitProp = 0.5,
+                communityProp = 0.25,
+            )
+        val prompt = buildPrompt(responseType, contextResult.contextText)
+        val answer = generate(prompt, question)
+        return QueryResult(answer = answer, context = contextResult.contextChunks)
     }
 
-    @Suppress("ReturnCount")
-    suspend fun buildContext(question: String): List<QueryContextChunk> {
-        val queryEmbedding = embed(question) ?: return emptyList()
-        val entityContexts = selectEntityContext(queryEmbedding)
-        if (entityContexts.isNotEmpty()) return entityContexts
-        return selectTextContext(queryEmbedding)
-    }
-
-    private fun selectEntityContext(queryEmbedding: List<Double>): List<QueryContextChunk> {
-        val summariesById = entitySummaries.associateBy { it.entityId }
-        val entitiesById = entities.associateBy { it.id }
-        return vectorStore
-            .nearestEntities(queryEmbedding, topKEntities)
-            .mapNotNull { (entityId, distance) ->
-                val text =
-                    summariesById[entityId]?.summary
-                        ?: entitiesById[entityId]?.let { entity ->
-                            textUnits.find { it.chunkId == entity.sourceChunkId }?.text
-                        }
-                text?.let { QueryContextChunk(id = entityId, text = it, score = distance) }
-            }
-    }
-
-    private fun selectTextContext(queryEmbedding: List<Double>): List<QueryContextChunk> {
-        val byChunkId = textUnits.associateBy { it.chunkId }
-        return textEmbeddings
-            .mapNotNull { embedding ->
-                val textUnit = byChunkId[embedding.chunkId] ?: return@mapNotNull null
-                val score = cosineSimilarity(queryEmbedding, embedding.vector)
-                QueryContextChunk(id = textUnit.id, text = textUnit.text, score = score)
-            }.sortedByDescending { it.score }
-            .take(fallbackTopK)
-    }
+    suspend fun buildContext(
+        question: String,
+        conversationHistory: List<String> = emptyList(),
+    ): List<QueryContextChunk> =
+        contextBuilder
+            .buildContext(
+                query = question,
+                conversationHistory = toConversationHistory(conversationHistory),
+                maxContextTokens = maxContextTokens,
+                topKMappedEntities = topKEntities,
+                topKRelationships = topKRelationships,
+                topKClaims = topKClaims,
+                topKCommunities = topKCommunities,
+                textUnitProp = 0.5,
+                communityProp = 0.25,
+            ).contextChunks
 
     private fun buildPrompt(
         responseType: String,
-        context: List<QueryContextChunk>,
-    ): String {
-        val header = "source_id|text"
-        val rows =
-            context.joinToString("\n") { chunk ->
-                "${chunk.id}|${chunk.text.take(maxContextChars)}"
-            }
-        val contextBlock = "$header\n$rows"
-        return LOCAL_SEARCH_SYSTEM_PROMPT
-            .replace("{context_data}", contextBlock)
+        context: String,
+    ): String =
+        LOCAL_SEARCH_SYSTEM_PROMPT
+            .replace("{context_data}", context)
             .replace("{response_type}", responseType)
-    }
 
-    private suspend fun embed(text: String): List<Double>? =
+    private suspend fun generate(
+        systemPrompt: String,
+        question: String,
+    ): String =
         withContext(Dispatchers.IO) {
-            runCatching {
-                val response: Response<dev.langchain4j.data.embedding.Embedding> = embeddingModel.embed(text)
-                response
-                    .content()
-                    ?.vector()
-                    ?.asList()
-                    ?.map { it.toDouble() }
-            }.getOrNull()
+            val finalPrompt = "$systemPrompt\n\nUser question: $question"
+            runCatching { responder.answer(finalPrompt) }.getOrNull() ?: "No response generated."
         }
-
-    private suspend fun generate(prompt: String): String =
-        withContext(Dispatchers.IO) {
-            runCatching { responder.answer(prompt) }.getOrNull() ?: "No response generated."
-        }
-
-    private fun cosineSimilarity(
-        a: List<Double>,
-        b: List<Double>,
-    ): Double {
-        if (a.isEmpty() || b.isEmpty() || a.size != b.size) return 0.0
-        var dot = 0.0
-        var magA = 0.0
-        var magB = 0.0
-        for (i in a.indices) {
-            dot += a[i] * b[i]
-            magA += a[i] * a[i]
-            magB += b[i] * b[i]
-        }
-        val denom = sqrt(magA) * sqrt(magB)
-        return if (denom == 0.0) 0.0 else dot / denom
-    }
 
     private val responder: ContextResponder =
         AiServices.create(ContextResponder::class.java, chatModel)
+
+    private val contextBuilder =
+        LocalSearchContextBuilder(
+            embeddingModel = embeddingModel,
+            vectorStore = vectorStore,
+            textUnits = textUnits,
+            textEmbeddings = textEmbeddings,
+            entities = entities,
+            entitySummaries = entitySummaries,
+            relationships = relationships,
+            claims = claims,
+            covariates = covariates,
+            communities = communities,
+            communityReports = communityReports,
+            columnDelimiter = columnDelimiter,
+        )
+
+    private fun toConversationHistory(history: List<String>): LocalSearchContextBuilder.ConversationHistory? =
+        if (history.isEmpty()) {
+            null
+        } else {
+            LocalSearchContextBuilder.ConversationHistory(
+                history.map { LocalSearchContextBuilder.ConversationTurn(LocalSearchContextBuilder.ConversationTurn.Role.USER, it) },
+            )
+        }
 }
 
 /**

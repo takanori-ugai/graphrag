@@ -412,6 +412,11 @@ class QueryCommand : Runnable {
                             textEmbeddings = indexData.textEmbeddings,
                             entities = indexData.entities,
                             entitySummaries = indexData.entitySummaries,
+                            relationships = indexData.relationships,
+                            claims = indexData.claims,
+                            covariates = indexData.covariates,
+                            communities = indexData.communities,
+                            communityReports = indexData.communityReports,
                         ).answer(query, responseType)
                     }
                 }
@@ -445,6 +450,11 @@ class QueryCommand : Runnable {
                                 textEmbeddings = indexData.textEmbeddings,
                                 entities = indexData.entities,
                                 entitySummaries = indexData.entitySummaries,
+                                relationships = indexData.relationships,
+                                claims = indexData.claims,
+                                covariates = indexData.covariates,
+                                communities = indexData.communities,
+                                communityReports = indexData.communityReports,
                             )
                         DriftQueryEngine(
                             chatModel = chatModel,

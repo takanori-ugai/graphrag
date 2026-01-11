@@ -189,6 +189,19 @@ object StateCodec {
                     }
                 }
 
+                "covariates" -> {
+                    if (value is JsonObject) {
+                        val covariateMap = mutableMapOf<String, List<Covariate>>()
+                        value.forEach { (covariateType, covariates) ->
+                            if (covariates is JsonArray) {
+                                covariateMap[covariateType] =
+                                    json.decodeFromJsonElement(ListSerializer(Covariate.serializer()), covariates)
+                            }
+                        }
+                        out[key] = covariateMap
+                    }
+                }
+
                 "entity_summaries" -> {
                     if (value is JsonArray) {
                         out[key] = json.decodeFromJsonElement(ListSerializer(EntitySummary.serializer()), value)

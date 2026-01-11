@@ -6,6 +6,14 @@ import com.fasterxml.jackson.annotation.JsonProperty
 import kotlinx.serialization.Serializable
 
 @Serializable
+data class Covariate(
+    val id: String,
+    val subjectId: String,
+    val covariateType: String = "covariate",
+    val attributes: Map<String, String> = emptyMap(),
+)
+
+@Serializable
 data class DocumentChunk(
     val id: String,
     val sourcePath: String,

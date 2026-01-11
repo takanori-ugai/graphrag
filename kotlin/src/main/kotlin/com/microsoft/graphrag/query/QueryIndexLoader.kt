@@ -1,11 +1,14 @@
 package com.microsoft.graphrag.query
 
+import com.microsoft.graphrag.index.Claim
 import com.microsoft.graphrag.index.CommunityAssignment
 import com.microsoft.graphrag.index.CommunityReport
+import com.microsoft.graphrag.index.Covariate
 import com.microsoft.graphrag.index.Entity
 import com.microsoft.graphrag.index.EntityEmbedding
 import com.microsoft.graphrag.index.EntitySummary
 import com.microsoft.graphrag.index.LocalVectorStore
+import com.microsoft.graphrag.index.Relationship
 import com.microsoft.graphrag.index.StateCodec
 import com.microsoft.graphrag.index.TextEmbedding
 import com.microsoft.graphrag.index.TextUnit
@@ -20,6 +23,9 @@ data class QueryIndexData(
     val entities: List<Entity>,
     val entityEmbeddings: List<EntityEmbedding>,
     val entitySummaries: List<EntitySummary>,
+    val relationships: List<Relationship>,
+    val claims: List<Claim>,
+    val covariates: Map<String, List<Covariate>>,
     val communities: List<CommunityAssignment>,
     val communityReports: List<CommunityReport>,
     val communityHierarchy: Map<Int, Int>,
@@ -44,6 +50,9 @@ class QueryIndexLoader(
         val entities = decoded["entities"] as? List<Entity> ?: emptyList()
         val entityEmbeddings = decoded["entity_embeddings"] as? List<EntityEmbedding> ?: emptyList()
         val entitySummaries = decoded["entity_summaries"] as? List<EntitySummary> ?: emptyList()
+        val relationships = decoded["relationships"] as? List<Relationship> ?: emptyList()
+        val claims = decoded["claims"] as? List<Claim> ?: emptyList()
+        val covariates = decoded["covariates"] as? Map<String, List<Covariate>> ?: emptyMap()
         val communities = decoded["communities"] as? List<CommunityAssignment> ?: emptyList()
         val communityReports = decoded["community_reports"] as? List<CommunityReport> ?: emptyList()
         val communityHierarchy = decoded["community_hierarchy"] as? Map<Int, Int> ?: emptyMap()
@@ -54,6 +63,9 @@ class QueryIndexLoader(
             entities = entities,
             entityEmbeddings = entityEmbeddings,
             entitySummaries = entitySummaries,
+            relationships = relationships,
+            claims = claims,
+            covariates = covariates,
             communities = communities,
             communityReports = communityReports,
             communityHierarchy = communityHierarchy,
