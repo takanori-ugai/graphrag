@@ -49,6 +49,7 @@ class DriftSearchEngine(
     private val responseType: String = "multiple paragraphs",
     private val callbacks: List<QueryCallbacks> = emptyList(),
     private val encoding: Encoding = Encodings.newLazyEncodingRegistry().getEncoding(EncodingType.CL100K_BASE),
+    private val maxIterations: Int = 3,
 ) {
     suspend fun search(
         question: String,
@@ -69,31 +70,24 @@ class DriftSearchEngine(
         totalOutputTokens += primer.outputTokens
         actions += primer
 
-        // Local follow-ups (use follow ups from primer if present)
-        val followUps =
-            if (followUpQueries.isNotEmpty()) {
-                followUpQueries
-            } else {
-                primer.followUpQueries.takeIf { it.isNotEmpty() } ?: listOf(question)
+        // Initialize DRIFT action state
+        val state =
+            DriftQueryState().apply {
+                addActions(if (followUpQueries.isNotEmpty()) followUpQueries else primer.followUpQueries.ifEmpty { listOf(question) })
             }
-        followUps.forEach { followUp ->
-            val local = localQueryEngine.answer(followUp, responseType = "multiple paragraphs")
+        var iteration = 0
+        while (iteration < maxIterations && state.hasPendingActions()) {
+            val nextAction = state.nextPendingAction() ?: break
+            val local = localQueryEngine.answer(nextAction.followUpQuery, responseType = responseType)
             totalLlmCalls += local.llmCalls
             totalPromptTokens += local.promptTokens
             totalOutputTokens += local.outputTokens
-            actions +=
-                QueryResult(
-                    answer = local.answer,
-                    context = local.context,
-                    contextRecords = local.contextRecords,
-                    contextText = "",
-                    followUpQueries = local.followUpQueries,
-                    score = local.score,
-                    llmCalls = local.llmCalls,
-                    promptTokens = local.promptTokens,
-                    outputTokens = local.outputTokens,
-                )
+            nextAction.result = local
+            state.completedActions.add(nextAction)
+            state.addActions(local.followUpQueries)
+            iteration++
         }
+        actions.addAll(state.completedActions.mapNotNull { it.result })
 
         val categories =
             mapOf(
@@ -158,15 +152,18 @@ class DriftSearchEngine(
                     .replace("{response_type}", responseType)
             val fullPrompt = "$prompt\n\nUser question: $question"
             callbacks.forEach { it.onReduceResponseStart(contextText) }
+            val reduceBuilder = StringBuilder()
             streamingModel.chat(
                 fullPrompt,
                 object : StreamingChatResponseHandler {
                     override fun onPartialResponse(partialResponse: String) {
+                        reduceBuilder.append(partialResponse)
+                        callbacks.forEach { it.onLLMNewToken(partialResponse) }
                         trySend(partialResponse)
                     }
 
                     override fun onCompleteResponse(response: ChatResponse) {
-                        callbacks.forEach { it.onReduceResponseEnd("") }
+                        callbacks.forEach { it.onReduceResponseEnd(reduceBuilder.toString()) }
                         close()
                     }
 
@@ -311,6 +308,32 @@ class DriftSearchEngine(
         val followUps: List<String>,
         val score: Double?,
     )
+
+    private data class DriftAction(
+        val followUpQuery: String,
+        var result: QueryResult? = null,
+    )
+
+    private data class DriftQueryState(
+        val pending: MutableList<DriftAction> = mutableListOf(),
+        val completedActions: MutableList<DriftAction> = mutableListOf(),
+        val seenQueries: MutableSet<String> = mutableSetOf(),
+    ) {
+        fun addActions(followUps: List<String>) {
+            followUps
+                .filter { it.isNotBlank() }
+                .filter { seenQueries.add(it) }
+                .forEach { pending.add(DriftAction(it)) }
+        }
+
+        fun hasPendingActions(): Boolean = pending.any { it.result == null }
+
+        fun nextPendingAction(): DriftAction? =
+            pending
+                .filter { it.result == null }
+                .maxByOrNull { it.result?.score ?: 0.0 } // prioritize higher scored if available
+                ?: pending.firstOrNull { it.result == null }
+    }
 
     private fun buildPrimerFallback(question: String): QueryResult {
         val global = runBlocking { globalSearchEngine?.search(question) }
