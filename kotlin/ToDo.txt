@@ -1,0 +1,37 @@
+- Config & pipeline orchestration: no settings.yaml parsing, no pipeline config/overrides, no caching, no callbacks/
+    stats parity, no update-run merge; pipeline steps are hardcoded and state is a loose map.
+  - Data model & outputs: parquet schemas are ad-hoc (entities/relationships/embeddings/communities only) and miss all
+    other tables (chunks/text_units/claims/covariates/communities hierarchy/reports metadata). No vector-store writes or
+    reporting outputs.
+  - Ingestion/chunking: simple fixed-size chunker; missing file type handling, token-based chunking, overlap strategy
+    from config.
+  - Extraction: single prompt per chunk; lacks prompt templates, error handling, retries, batch orchestration, claim
+    extraction, multi-step graph assembly, validation.
+  - Embeddings: only embeds chunk text and entity names locally; no graph embeddings, no vector store integration, no
+    caching.
+  - Graph/community: simple JGraphT graph; Leiden integration via CWTS but no edge weights, hierarchy levels, or
+    metrics; no community summary prompts aligned with Python prompts; no map/reduce or report structure.
+  - Logging & diagnostics: no workflow callbacks, memprofile/verbose behavior, stats collection is minimal.
+  - Update mode: no delta merge with previous outputs.
+
+CLI/entry: Python graphrag/cli/query.py supports multi-index queries, streaming, callbacks, and config overrides
+    with storage abstraction; Kotlin src/main/kotlin/com/microsoft/graphrag/cli/GraphRagCli.kt:373-438 loads one output
+    folder, ignores config outputs, and the --streaming flag does nothing (always returns full string).
+  - Basic search flow: Python graphrag/query/structured_search/basic_search/search.py:20-122 uses a BasicContextBuilder,
+    token budgeting, structured context_records, and system prompts; Kotlin src/main/kotlin/com/microsoft/graphrag/
+    query/BasicQueryEngine.kt does a single vector search over text units and builds a fixed prompt without token
+    management or structured context.
+  - Local search: Python LocalSearch (e.g., graphrag/query/structured_search/local_search/search.py) builds rich local
+    context from entities, relationships, covariates, conversation history, etc.; Kotlin src/main/kotlin/com/microsoft/
+    graphrag/query/AdvancedQueryEngines.kt LocalQueryEngine only ranks entity vectors from vector_store.json and falls
+    back to text-unit cosine similarity—no relationships, claims, or history handling.
+  - Global/dynamic communities: Python uses community reports with map/reduce prompts and optional dynamic community
+    selection via LLM rating (graphrag/query/context_builder/dynamic_community_selection.py), respecting hierarchy
+    levels; Kotlin GlobalQueryEngine simply re-embeds report summaries at query time and picks top K, ignoring
+    hierarchy/level selection and rating logic.
+  - DRIFT: Python DRIFT is a multi-step planner with primer, follow-up actions, state graph, and mixed local/global
+    passes (graphrag/query/structured_search/drift_search/search.py and helpers). Kotlin DriftQueryEngine just
+    concatenates global + local contexts and calls the model once—no actions, no state, no follow-ups.
+  - Context/data loading: Python query stack reads parquet tables via configured storage and supports multi-output
+    setups; Kotlin QueryIndexLoader reads context.json/vector_store.json only and skips parquet/stats, so feature parity
+    isn’t present.

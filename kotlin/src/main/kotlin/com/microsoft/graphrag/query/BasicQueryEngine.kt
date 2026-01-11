@@ -11,6 +11,7 @@ import dev.langchain4j.service.SystemMessage
 import dev.langchain4j.service.UserMessage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.util.Locale
 import kotlin.math.sqrt
 
 data class QueryContextChunk(
@@ -26,26 +27,29 @@ data class QueryResult(
 
 /**
  * Minimal query engine that mirrors the Python basic search flow: embed the question,
- * retrieve the closest text units by vector similarity, and ask the chat model to answer
- * using those snippets as context.
+ * retrieve the closest text units by vector similarity, build a CSV context table with
+ * a token budget, and ask the chat model to answer using the basic search system prompt.
  */
+@Suppress("LongParameterList")
 class BasicQueryEngine(
     private val chatModel: OpenAiChatModel,
     private val embeddingModel: EmbeddingModel,
     private val vectorStore: LocalVectorStore,
     private val textUnits: List<TextUnit>,
     private val textEmbeddings: List<TextEmbedding>,
-    private val topK: Int = 5,
+    private val topK: Int = 10,
+    private val maxContextTokens: Int = 12_000,
+    private val columnDelimiter: String = "|",
 ) {
     suspend fun answer(
         question: String,
         responseType: String,
     ): QueryResult {
         val queryEmbedding = embed(question) ?: return QueryResult("Failed to embed query text.", emptyList())
-        val context = selectContext(queryEmbedding)
-        val prompt = buildPrompt(question, responseType, context)
-        val answer = generate(prompt)
-        return QueryResult(answer = answer, context = context)
+        val contextRows = buildContext(queryEmbedding)
+        val prompt = buildPrompt(responseType, contextRows)
+        val answer = generate(prompt, question)
+        return QueryResult(answer = answer, context = contextRows)
     }
 
     private suspend fun embed(text: String): List<Double>? =
@@ -54,19 +58,19 @@ class BasicQueryEngine(
                 val response: Response<dev.langchain4j.data.embedding.Embedding> = embeddingModel.embed(text)
                 response
                     .content()
-                    ?.vector()
-                    ?.asList()
-                    ?.map { it.toDouble() }
+                    .vector()
+                    .asList()
+                    .map { it.toDouble() }
             }.getOrNull()
         }
 
-    private fun selectContext(queryEmbedding: List<Double>): List<QueryContextChunk> {
+    private fun buildContext(queryEmbedding: List<Double>): List<QueryContextChunk> {
         // Prefer the persisted vector store for retrieval, otherwise fall back to in-memory embeddings.
         val nearest =
             vectorStore
                 .nearestTextChunks(queryEmbedding, topK)
                 .mapNotNull { (chunkId, distance) ->
-                    textUnits.find { it.chunkId == chunkId }?.let { QueryContextChunk(chunkId, it.text, distance) }
+                    textUnits.find { it.chunkId == chunkId }?.let { QueryContextChunk(it.id, it.text, distance) }
                 }
 
         if (nearest.isNotEmpty()) return nearest
@@ -78,38 +82,49 @@ class BasicQueryEngine(
                 .mapNotNull { embedding ->
                     val textUnit = byChunkId[embedding.chunkId] ?: return@mapNotNull null
                     val score = cosineSimilarity(queryEmbedding, embedding.vector)
-                    QueryContextChunk(textUnit.chunkId, textUnit.text, score)
+                    QueryContextChunk(textUnit.id, textUnit.text, score)
                 }.sortedByDescending { it.score }
                 .take(topK)
 
-        return scored
+        val headerTokens = tokenCount("source_id${columnDelimiter}text\n")
+        var tokens = headerTokens
+        val rows = mutableListOf<QueryContextChunk>()
+        for (chunk in scored) {
+            val rowText = "${chunk.id}$columnDelimiter${chunk.text}\n"
+            val rowTokens = tokenCount(rowText)
+            if (tokens + rowTokens > maxContextTokens) {
+                break
+            }
+            tokens += rowTokens
+            rows.add(chunk)
+        }
+        return rows
     }
 
     private fun buildPrompt(
-        question: String,
         responseType: String,
         context: List<QueryContextChunk>,
     ): String {
-        val contextBlock =
-            context.joinToString("\n\n") { chunk ->
-                "- [${chunk.id}] ${chunk.text.take(800)}"
+        val header = "source_id$columnDelimiter${"text"}"
+        val rows =
+            context.joinToString("\n") { chunk ->
+                "${chunk.id}$columnDelimiter${chunk.text}"
             }
-        return """
-            You are a helpful assistant that answers questions using the supplied context only.
-            Provide the response in the form: $responseType.
-
-            Context:
-            $contextBlock
-
-            Question: $question
-
-            Answer:
-            """.trimIndent()
+        val contextBlock = "$header\n$rows"
+        val systemPrompt =
+            BASIC_SEARCH_SYSTEM_PROMPT
+                .replace("{context_data}", contextBlock)
+                .replace("{response_type}", responseType)
+        return systemPrompt
     }
 
-    private suspend fun generate(prompt: String): String =
+    private suspend fun generate(
+        systemPrompt: String,
+        question: String,
+    ): String =
         withContext(Dispatchers.IO) {
-            runCatching { responder.answer(prompt) }.getOrNull() ?: "No response generated."
+            val finalPrompt = "$systemPrompt\n\nUser question: $question"
+            runCatching { responder.answer(finalPrompt) }.getOrNull() ?: "No response generated."
         }
 
     private fun cosineSimilarity(
@@ -129,6 +144,12 @@ class BasicQueryEngine(
         return if (denom == 0.0) 0.0 else dot / denom
     }
 
+    private fun tokenCount(text: String): Int =
+        text
+            .lowercase(Locale.US)
+            .split(Regex("\\s+"))
+            .count { it.isNotBlank() }
+
     private val responder: QueryResponder =
         AiServices.create(QueryResponder::class.java, chatModel)
 }
@@ -139,3 +160,73 @@ private interface QueryResponder {
         @UserMessage prompt: String,
     ): String
 }
+
+private val BASIC_SEARCH_SYSTEM_PROMPT =
+    """
+---Role---
+
+You are a helpful assistant responding to questions about data in the tables provided.
+
+
+---Goal---
+
+Generate a response of the target length and format that responds to the user's question, summarizing all relevant information in the input data tables appropriate for the response length and format.
+
+You should use the data provided in the data tables below as the primary context for generating the response.
+
+If you don't know the answer or if the input data tables do not contain sufficient information to provide an answer, just say so. Do not make anything up.
+
+Points supported by data should list their data references as follows:
+
+"This is an example sentence supported by multiple data references [Data: Sources (record ids)]."
+
+Do not list more than 5 record ids in a single reference. Instead, list the top 5 most relevant record ids and add "+more" to indicate that there are more.
+
+For example:
+
+"Person X is the owner of Company Y and subject to many allegations of wrongdoing [Data: Sources (2, 7, 64, 46, 34, +more)]. He is also CEO of company X [Data: Sources (1, 3)]"
+
+where 1, 2, 3, 7, 34, 46, and 64 represent the source id taken from the "source_id" column in the provided tables.
+
+Do not include information where the supporting evidence for it is not provided.
+
+
+---Target response length and format---
+
+{response_type}
+
+
+---Data tables---
+
+{context_data}
+
+
+---Goal---
+
+Generate a response of the target length and format that responds to the user's question, summarizing all relevant information in the input data appropriate for the response length and format.
+
+You should use the data provided in the data tables below as the primary context for generating the response.
+
+If you don't know the answer or if the input data tables do not contain sufficient information to provide an answer, just say so. Do not make anything up.
+
+Points supported by data should list their data references as follows:
+
+"This is an example sentence supported by multiple data references [Data: Sources (record ids)]."
+
+Do not list more than 5 record ids in a single reference. Instead, list the top 5 most relevant record ids and add "+more" to indicate that there are more.
+
+For example:
+
+"Person X is the owner of Company Y and subject to many allegations of wrongdoing [Data: Sources (2, 7, 64, 46, 34, +more)]. He is also CEO of company X [Data: Sources (1, 3)]"
+
+where 1, 2, 3, 7, 34, 46, and 64 represent the source id taken from the "source_id" column in the provided tables.
+
+Do not include information where the supporting evidence for it is not provided.
+
+
+---Target response length and format---
+
+{response_type}
+
+Add sections and commentary to the response as appropriate for the length and format. Style the response in markdown.
+    """.trimIndent()

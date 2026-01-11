@@ -2,6 +2,9 @@ package com.microsoft.graphrag.cli
 
 import com.microsoft.graphrag.index.defaultEmbeddingModel
 import com.microsoft.graphrag.query.BasicQueryEngine
+import com.microsoft.graphrag.query.DriftQueryEngine
+import com.microsoft.graphrag.query.GlobalQueryEngine
+import com.microsoft.graphrag.query.LocalQueryEngine
 import com.microsoft.graphrag.query.QueryIndexLoader
 import dev.langchain4j.model.openai.OpenAiChatModel
 import kotlinx.coroutines.runBlocking
@@ -369,10 +372,6 @@ class QueryCommand : Runnable {
 
     override fun run() {
         val selectedMethod = method.lowercase()
-        if (selectedMethod != "basic") {
-            println("Only 'basic' query is implemented in Kotlin right now (requested=$method).")
-            return
-        }
 
         val outputDir = (data ?: root.resolve("sample-index/output")).toAbsolutePath().normalize()
         val indexData = QueryIndexLoader(outputDir).load()
@@ -388,17 +387,78 @@ class QueryCommand : Runnable {
                 .build()
         val embeddingModel = defaultEmbeddingModel(apiKey)
 
-        val engine =
-            BasicQueryEngine(
-                chatModel = chatModel,
-                embeddingModel = embeddingModel,
-                vectorStore = indexData.vectorStore,
-                textUnits = indexData.textUnits,
-                textEmbeddings = indexData.textEmbeddings,
-                topK = 5,
-            )
+        val result =
+            when (selectedMethod) {
+                "basic" -> {
+                    runBlocking {
+                        BasicQueryEngine(
+                            chatModel = chatModel,
+                            embeddingModel = embeddingModel,
+                            vectorStore = indexData.vectorStore,
+                            textUnits = indexData.textUnits,
+                            textEmbeddings = indexData.textEmbeddings,
+                            topK = 5,
+                        ).answer(query, responseType)
+                    }
+                }
 
-        val result = runBlocking { engine.answer(query, responseType) }
+                "local" -> {
+                    runBlocking {
+                        LocalQueryEngine(
+                            chatModel = chatModel,
+                            embeddingModel = embeddingModel,
+                            vectorStore = indexData.vectorStore,
+                            textUnits = indexData.textUnits,
+                            textEmbeddings = indexData.textEmbeddings,
+                            entities = indexData.entities,
+                            entitySummaries = indexData.entitySummaries,
+                        ).answer(query, responseType)
+                    }
+                }
+
+                "global" -> {
+                    runBlocking {
+                        GlobalQueryEngine(
+                            chatModel = chatModel,
+                            embeddingModel = embeddingModel,
+                            communityReports = indexData.communityReports,
+                            topK = if (dynamicCommunitySelection) 5 else 3,
+                        ).answer(query, responseType)
+                    }
+                }
+
+                "drift" -> {
+                    runBlocking {
+                        val globalEngine =
+                            GlobalQueryEngine(
+                                chatModel = chatModel,
+                                embeddingModel = embeddingModel,
+                                communityReports = indexData.communityReports,
+                                topK = if (dynamicCommunitySelection) 5 else 3,
+                            )
+                        val localEngine =
+                            LocalQueryEngine(
+                                chatModel = chatModel,
+                                embeddingModel = embeddingModel,
+                                vectorStore = indexData.vectorStore,
+                                textUnits = indexData.textUnits,
+                                textEmbeddings = indexData.textEmbeddings,
+                                entities = indexData.entities,
+                                entitySummaries = indexData.entitySummaries,
+                            )
+                        DriftQueryEngine(
+                            chatModel = chatModel,
+                            globalEngine = globalEngine,
+                            localEngine = localEngine,
+                        ).answer(query, responseType)
+                    }
+                }
+
+                else -> {
+                    println("Unsupported query method: $method. Use one of: basic, local, global, drift.")
+                    return
+                }
+            }
         println(result.answer)
         if (verbose) {
             println("\nContext chunks used:")
