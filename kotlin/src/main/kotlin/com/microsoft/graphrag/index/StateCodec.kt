@@ -73,6 +73,14 @@ object StateCodec {
                                 )
                         }
 
+                        value.all { it is CommunityReportEmbedding } -> {
+                            result[key] =
+                                json.encodeToJsonElement(
+                                    ListSerializer(CommunityReportEmbedding.serializer()),
+                                    value.filterIsInstance<CommunityReportEmbedding>(),
+                                )
+                        }
+
                         value.all { it is CommunityAssignment } -> {
                             result[key] =
                                 json.encodeToJsonElement(
@@ -186,6 +194,16 @@ object StateCodec {
                 "community_reports" -> {
                     if (value is JsonArray) {
                         out[key] = json.decodeFromJsonElement(ListSerializer(CommunityReport.serializer()), value)
+                    }
+                }
+
+                "community_report_embeddings" -> {
+                    if (value is JsonArray) {
+                        out[key] =
+                            json.decodeFromJsonElement(
+                                ListSerializer(CommunityReportEmbedding.serializer()),
+                                value,
+                            )
                     }
                 }
 

@@ -2,12 +2,16 @@ package com.microsoft.graphrag.cli
 
 import com.microsoft.graphrag.index.defaultEmbeddingModel
 import com.microsoft.graphrag.query.BasicQueryEngine
-import com.microsoft.graphrag.query.DriftQueryEngine
+import com.microsoft.graphrag.query.DriftSearchEngine
 import com.microsoft.graphrag.query.GlobalQueryEngine
+import com.microsoft.graphrag.query.GlobalSearchEngine
 import com.microsoft.graphrag.query.LocalQueryEngine
+import com.microsoft.graphrag.query.ModelParams
 import com.microsoft.graphrag.query.QueryIndexLoader
+import com.microsoft.graphrag.query.QueryResult
 import dev.langchain4j.model.openai.OpenAiChatModel
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.runBlocking
 import picocli.CommandLine
 import picocli.CommandLine.Command
@@ -394,9 +398,10 @@ class QueryCommand : Runnable {
                 .build()
         val embeddingModel = defaultEmbeddingModel(apiKey)
 
-        val result =
+        val result: QueryResult =
             when (selectedMethod) {
                 "basic" -> {
+                    if (streaming) println("Streaming not supported for basic mode; returning full response.")
                     runBlocking {
                         BasicQueryEngine(
                             chatModel = chatModel,
@@ -411,43 +416,63 @@ class QueryCommand : Runnable {
 
                 "local" -> {
                     runBlocking {
-                        LocalQueryEngine(
-                            streamingModel = streamingChatModel,
-                            embeddingModel = embeddingModel,
-                            vectorStore = indexData.vectorStore,
-                            textUnits = indexData.textUnits,
-                            textEmbeddings = indexData.textEmbeddings,
-                            entities = indexData.entities,
-                            entitySummaries = indexData.entitySummaries,
-                            relationships = indexData.relationships,
-                            claims = indexData.claims,
-                            covariates = indexData.covariates,
-                            communities = indexData.communities,
-                            communityReports = indexData.communityReports,
-                        ).answer(query, responseType)
+                        val engine =
+                            LocalQueryEngine(
+                                streamingModel = streamingChatModel,
+                                embeddingModel = embeddingModel,
+                                vectorStore = indexData.vectorStore,
+                                textUnits = indexData.textUnits,
+                                textEmbeddings = indexData.textEmbeddings,
+                                entities = indexData.entities,
+                                entitySummaries = indexData.entitySummaries,
+                                relationships = indexData.relationships,
+                                claims = indexData.claims,
+                                covariates = indexData.covariates,
+                                communities = indexData.communities,
+                                communityReports = indexData.communityReports,
+                                modelParams = ModelParams(jsonResponse = false),
+                            )
+                        if (streaming) {
+                            val builder = StringBuilder()
+                            engine.streamAnswer(query, responseType).collect { partial ->
+                                print(partial)
+                                builder.append(partial)
+                            }
+                            QueryResult(answer = builder.toString(), context = emptyList())
+                        } else {
+                            engine.answer(query, responseType)
+                        }
                     }
                 }
 
                 "global" -> {
                     runBlocking {
-                        GlobalQueryEngine(
-                            chatModel = chatModel,
-                            embeddingModel = embeddingModel,
-                            communityReports = indexData.communityReports,
-                            topK = if (dynamicCommunitySelection) 5 else 3,
-                        ).answer(query, responseType)
+                        if (streaming) {
+                            val engine =
+                                GlobalSearchEngine(
+                                    streamingModel = streamingChatModel,
+                                    communityReports = indexData.communityReports,
+                                )
+                            val builder = StringBuilder()
+                            engine.streamSearch(query).collect { partial ->
+                                print(partial)
+                                builder.append(partial)
+                            }
+                            QueryResult(answer = builder.toString(), context = emptyList())
+                        } else {
+                            GlobalQueryEngine(
+                                chatModel = chatModel,
+                                embeddingModel = embeddingModel,
+                                communityReports = indexData.communityReports,
+                                communityReportEmbeddings = indexData.communityReportEmbeddings,
+                                topK = if (dynamicCommunitySelection) 5 else 3,
+                            ).answer(query, responseType)
+                        }
                     }
                 }
 
                 "drift" -> {
                     runBlocking {
-                        val globalEngine =
-                            GlobalQueryEngine(
-                                chatModel = chatModel,
-                                embeddingModel = embeddingModel,
-                                communityReports = indexData.communityReports,
-                                topK = if (dynamicCommunitySelection) 5 else 3,
-                            )
                         val localEngine =
                             LocalQueryEngine(
                                 streamingModel = streamingChatModel,
@@ -462,12 +487,41 @@ class QueryCommand : Runnable {
                                 covariates = indexData.covariates,
                                 communities = indexData.communities,
                                 communityReports = indexData.communityReports,
+                                modelParams = ModelParams(jsonResponse = false),
                             )
-                        DriftQueryEngine(
-                            chatModel = chatModel,
-                            globalEngine = globalEngine,
-                            localEngine = localEngine,
-                        ).answer(query, responseType)
+                        if (streaming) {
+                            val engine =
+                                DriftSearchEngine(
+                                    streamingModel = streamingChatModel,
+                                    communityReports = indexData.communityReports,
+                                    globalSearchEngine =
+                                        GlobalSearchEngine(
+                                            streamingModel = streamingChatModel,
+                                            communityReports = indexData.communityReports,
+                                        ),
+                                    localQueryEngine = localEngine,
+                                )
+                            val builder = StringBuilder()
+                            engine.streamSearch(query).collect { partial ->
+                                print(partial)
+                                builder.append(partial)
+                            }
+                            QueryResult(answer = builder.toString(), context = emptyList())
+                        } else {
+                            val engine =
+                                DriftSearchEngine(
+                                    streamingModel = streamingChatModel,
+                                    communityReports = indexData.communityReports,
+                                    globalSearchEngine =
+                                        GlobalSearchEngine(
+                                            streamingModel = streamingChatModel,
+                                            communityReports = indexData.communityReports,
+                                        ),
+                                    localQueryEngine = localEngine,
+                                )
+                            val driftResult = engine.search(query)
+                            QueryResult(answer = driftResult.answer, context = emptyList())
+                        }
                     }
                 }
 
@@ -476,8 +530,12 @@ class QueryCommand : Runnable {
                     return
                 }
             }
-        println(result.answer)
-        if (verbose) {
+        if (streaming) {
+            println()
+        } else {
+            println(result.answer)
+        }
+        if (verbose && result.context.isNotEmpty()) {
             println("\nContext chunks used:")
             result.context.forEach { chunk ->
                 println("- [${chunk.id}] score=${"%.3f".format(chunk.score)} ${chunk.text.take(120)}")

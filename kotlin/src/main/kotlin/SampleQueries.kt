@@ -69,6 +69,9 @@ fun main() =
                 covariates = index.covariates,
                 communities = index.communities,
                 communityReports = index.communityReports,
+                modelParams =
+                    com.microsoft.graphrag.query
+                        .ModelParams(jsonResponse = false),
             )
         val localResult = localEngine.answer(question, responseType)
         println("\n=== LOCAL ===")

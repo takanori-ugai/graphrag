@@ -3,6 +3,7 @@ package com.microsoft.graphrag.query
 import com.microsoft.graphrag.index.Claim
 import com.microsoft.graphrag.index.CommunityAssignment
 import com.microsoft.graphrag.index.CommunityReport
+import com.microsoft.graphrag.index.CommunityReportEmbedding
 import com.microsoft.graphrag.index.Covariate
 import com.microsoft.graphrag.index.Entity
 import com.microsoft.graphrag.index.EntityEmbedding
@@ -28,6 +29,7 @@ data class QueryIndexData(
     val covariates: Map<String, List<Covariate>>,
     val communities: List<CommunityAssignment>,
     val communityReports: List<CommunityReport>,
+    val communityReportEmbeddings: List<CommunityReportEmbedding>,
     val communityHierarchy: Map<Int, Int>,
     val vectorStore: LocalVectorStore,
 )
@@ -55,6 +57,7 @@ class QueryIndexLoader(
         val covariates = decoded["covariates"] as? Map<String, List<Covariate>> ?: emptyMap()
         val communities = decoded["communities"] as? List<CommunityAssignment> ?: emptyList()
         val communityReports = decoded["community_reports"] as? List<CommunityReport> ?: emptyList()
+        val communityReportEmbeddings = decoded["community_report_embeddings"] as? List<CommunityReportEmbedding> ?: emptyList()
         val communityHierarchy = decoded["community_hierarchy"] as? Map<Int, Int> ?: emptyMap()
 
         return QueryIndexData(
@@ -68,6 +71,7 @@ class QueryIndexLoader(
             covariates = covariates,
             communities = communities,
             communityReports = communityReports,
+            communityReportEmbeddings = communityReportEmbeddings,
             communityHierarchy = communityHierarchy,
             vectorStore = LocalVectorStore(outputDir.resolve("vector_store.json")),
         )

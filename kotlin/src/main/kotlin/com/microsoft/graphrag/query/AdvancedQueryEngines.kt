@@ -6,6 +6,7 @@ import com.knuddels.jtokkit.api.EncodingType
 import com.microsoft.graphrag.index.Claim
 import com.microsoft.graphrag.index.CommunityAssignment
 import com.microsoft.graphrag.index.CommunityReport
+import com.microsoft.graphrag.index.CommunityReportEmbedding
 import com.microsoft.graphrag.index.Covariate
 import com.microsoft.graphrag.index.Entity
 import com.microsoft.graphrag.index.EntitySummary
@@ -271,9 +272,15 @@ class GlobalQueryEngine(
     private val chatModel: OpenAiChatModel,
     private val embeddingModel: EmbeddingModel,
     private val communityReports: List<CommunityReport>,
+    private val communityReportEmbeddings: List<CommunityReportEmbedding> = emptyList(),
     private val topK: Int = 3,
     private val maxContextChars: Int = 1000,
 ) {
+    private val communityEmbeddingCache =
+        mutableMapOf<Int, List<Double>>().apply {
+            communityReportEmbeddings.forEach { put(it.communityId, it.vector) }
+        }
+
     suspend fun answer(
         question: String,
         responseType: String,
@@ -289,7 +296,10 @@ class GlobalQueryEngine(
         val scored =
             communityReports
                 .mapNotNull { report ->
-                    val summaryEmbedding = embed(report.summary) ?: return@mapNotNull null
+                    val summaryEmbedding =
+                        communityEmbeddingCache[report.communityId]
+                            ?: embed(report.summary)?.also { communityEmbeddingCache[report.communityId] = it }
+                            ?: return@mapNotNull null
                     val score = cosineSimilarity(queryEmbedding, summaryEmbedding)
                     QueryContextChunk(id = report.communityId.toString(), text = report.summary, score = score)
                 }.sortedByDescending { it.score }

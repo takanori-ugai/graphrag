@@ -62,6 +62,12 @@ data class EntityEmbedding(
 )
 
 @Serializable
+data class CommunityReportEmbedding(
+    val communityId: Int,
+    val vector: List<Double>,
+)
+
+@Serializable
 data class CommunityAssignment(
     val entityId: String,
     val communityId: Int,
