@@ -15,14 +15,18 @@ import com.microsoft.graphrag.index.TextEmbedding
 import com.microsoft.graphrag.index.TextUnit
 import com.microsoft.graphrag.query.LocalSearchContextBuilder.ConversationHistory
 import com.microsoft.graphrag.query.QueryCallbacks
+import dev.langchain4j.model.chat.response.ChatResponse
+import dev.langchain4j.model.chat.response.StreamingChatResponseHandler
 import dev.langchain4j.model.embedding.EmbeddingModel
 import dev.langchain4j.model.openai.OpenAiChatModel
+import dev.langchain4j.model.openai.OpenAiStreamingChatModel
 import dev.langchain4j.model.output.Response
 import dev.langchain4j.service.AiServices
 import dev.langchain4j.service.SystemMessage
 import dev.langchain4j.service.UserMessage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.util.concurrent.CompletableFuture
 import kotlin.math.sqrt
 
 /**
@@ -32,7 +36,7 @@ import kotlin.math.sqrt
  */
 @Suppress("LongParameterList")
 class LocalQueryEngine(
-    private val chatModel: OpenAiChatModel,
+    private val streamingModel: OpenAiStreamingChatModel,
     private val embeddingModel: EmbeddingModel,
     private val vectorStore: LocalVectorStore,
     private val textUnits: List<TextUnit>,
@@ -129,11 +133,27 @@ class LocalQueryEngine(
     ): String =
         withContext(Dispatchers.IO) {
             val finalPrompt = "$systemPrompt\n\nUser question: $question"
-            runCatching { responder.answer(finalPrompt) }.getOrNull() ?: "No response generated."
-        }
+            val builder = StringBuilder()
+            val future = CompletableFuture<String>()
+            streamingModel.chat(
+                finalPrompt,
+                object : StreamingChatResponseHandler {
+                    override fun onPartialResponse(partialResponse: String) {
+                        builder.append(partialResponse)
+                        callbacks.forEach { it.onLLMNewToken(partialResponse) }
+                    }
 
-    private val responder: ContextResponder =
-        AiServices.create(ContextResponder::class.java, chatModel)
+                    override fun onCompleteResponse(response: ChatResponse) {
+                        future.complete(builder.toString())
+                    }
+
+                    override fun onError(error: Throwable) {
+                        future.completeExceptionally(error)
+                    }
+                },
+            )
+            runCatching { future.get() }.getOrElse { "No response generated." }
+        }
 
     private val contextBuilder =
         LocalSearchContextBuilder(

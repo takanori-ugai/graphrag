@@ -4,12 +4,15 @@ import com.knuddels.jtokkit.Encodings
 import com.knuddels.jtokkit.api.Encoding
 import com.knuddels.jtokkit.api.EncodingType
 import com.microsoft.graphrag.index.CommunityReport
-import dev.langchain4j.model.openai.OpenAiChatModel
+import dev.langchain4j.model.chat.response.ChatResponse
+import dev.langchain4j.model.chat.response.StreamingChatResponseHandler
+import dev.langchain4j.model.openai.OpenAiStreamingChatModel
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import java.util.concurrent.CompletableFuture
 import kotlin.math.min
 
 data class GlobalSearchResult(
@@ -29,7 +32,7 @@ data class GlobalSearchResult(
  * Global search engine that mirrors Python's map-reduce flow over community reports.
  */
 class GlobalSearchEngine(
-    private val chatModel: OpenAiChatModel,
+    private val streamingModel: OpenAiStreamingChatModel,
     private val communityReports: List<CommunityReport>,
     private val callbacks: List<QueryCallbacks> = emptyList(),
     private val mapSystemPrompt: String = MAP_SYSTEM_PROMPT,
@@ -124,7 +127,7 @@ class GlobalSearchEngine(
                 .replace("{max_length}", mapMaxLength.toString())
         val promptTokens = tokenCount(prompt)
         val fullPrompt = "$prompt\n\nUser question: $question"
-        val answerText = runCatching { chatModel.chat(fullPrompt).toString() }.getOrElse { "" }
+        val answerText = streamAnswer(fullPrompt)
         val outputTokens = tokenCount(answerText)
         callbacks.forEach { it.onLLMNewToken(answerText) }
         return QueryResult(
@@ -170,7 +173,7 @@ class GlobalSearchEngine(
                 .let { prompt -> if (allowGeneralKnowledge) "$prompt\n$generalKnowledgeInstruction" else prompt }
         val promptTokens = tokenCount(reducePrompt)
         val fullPrompt = "$reducePrompt\n\nUser question: $question"
-        val answerText = runCatching { chatModel.chat(fullPrompt).toString() }.getOrElse { "" }
+        val answerText = streamAnswer(fullPrompt)
         val outputTokens = tokenCount(answerText)
         callbacks.forEach { it.onLLMNewToken(answerText) }
         return QueryResult(
@@ -201,6 +204,29 @@ class GlobalSearchEngine(
     }
 
     private fun tokenCount(text: String): Int = encoding.countTokens(text)
+
+    private fun streamAnswer(prompt: String): String {
+        val builder = StringBuilder()
+        val future = CompletableFuture<String>()
+        streamingModel.chat(
+            prompt,
+            object : StreamingChatResponseHandler {
+                override fun onPartialResponse(partialResponse: String) {
+                    builder.append(partialResponse)
+                    callbacks.forEach { it.onLLMNewToken(partialResponse) }
+                }
+
+                override fun onCompleteResponse(response: ChatResponse) {
+                    future.complete(builder.toString())
+                }
+
+                override fun onError(error: Throwable) {
+                    future.completeExceptionally(error)
+                }
+            },
+        )
+        return future.get()
+    }
 
     private data class Point(
         val description: String,

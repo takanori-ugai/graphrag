@@ -7,6 +7,7 @@ import com.microsoft.graphrag.query.GlobalQueryEngine
 import com.microsoft.graphrag.query.LocalQueryEngine
 import com.microsoft.graphrag.query.QueryIndexLoader
 import dev.langchain4j.model.openai.OpenAiChatModel
+import dev.langchain4j.model.openai.OpenAiStreamingChatModel
 import kotlinx.coroutines.runBlocking
 import picocli.CommandLine
 import picocli.CommandLine.Command
@@ -385,6 +386,12 @@ class QueryCommand : Runnable {
                 .apiKey(apiKey)
                 .modelName("gpt-4o-mini")
                 .build()
+        val streamingChatModel =
+            OpenAiStreamingChatModel
+                .builder()
+                .apiKey(apiKey)
+                .modelName("gpt-4o-mini")
+                .build()
         val embeddingModel = defaultEmbeddingModel(apiKey)
 
         val result =
@@ -405,7 +412,7 @@ class QueryCommand : Runnable {
                 "local" -> {
                     runBlocking {
                         LocalQueryEngine(
-                            chatModel = chatModel,
+                            streamingModel = streamingChatModel,
                             embeddingModel = embeddingModel,
                             vectorStore = indexData.vectorStore,
                             textUnits = indexData.textUnits,
@@ -443,7 +450,7 @@ class QueryCommand : Runnable {
                             )
                         val localEngine =
                             LocalQueryEngine(
-                                chatModel = chatModel,
+                                streamingModel = streamingChatModel,
                                 embeddingModel = embeddingModel,
                                 vectorStore = indexData.vectorStore,
                                 textUnits = indexData.textUnits,

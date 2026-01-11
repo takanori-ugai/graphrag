@@ -1,7 +1,5 @@
 package com.microsoft.graphrag.query
 
-import kotlin.system.measureTimeMillis
-
 data class DriftSearchResult(
     val answer: String,
     val actions: List<QueryResult>,
@@ -36,26 +34,23 @@ class DriftSearchEngine(
         val actions = mutableListOf<QueryResult>()
 
         // Primer: global search
-        val primerTime =
-            measureTimeMillis {
-                val primer = globalSearchEngine.search(question)
-                totalLlmCalls += primer.llmCalls
-                totalPromptTokens += primer.promptTokens
-                totalOutputTokens += primer.outputTokens
-                actions +=
-                    QueryResult(
-                        answer = primer.answer,
-                        context = emptyList(),
-                        contextRecords = primer.contextRecords,
-                        contextText = primer.reduceContextText,
-                        llmCalls = primer.llmCalls,
-                        promptTokens = primer.promptTokens,
-                        outputTokens = primer.outputTokens,
-                        llmCallsCategories = primer.llmCallsCategories,
-                        promptTokensCategories = primer.promptTokensCategories,
-                        outputTokensCategories = primer.outputTokensCategories,
-                    )
-            }
+        val primer = globalSearchEngine.search(question)
+        totalLlmCalls += primer.llmCalls
+        totalPromptTokens += primer.promptTokens
+        totalOutputTokens += primer.outputTokens
+        actions +=
+            QueryResult(
+                answer = primer.answer,
+                context = emptyList(),
+                contextRecords = primer.contextRecords,
+                contextText = primer.reduceContextText,
+                llmCalls = primer.llmCalls,
+                promptTokens = primer.promptTokens,
+                outputTokens = primer.outputTokens,
+                llmCallsCategories = primer.llmCallsCategories,
+                promptTokensCategories = primer.promptTokensCategories,
+                outputTokensCategories = primer.outputTokensCategories,
+            )
 
         // Local follow-ups (simulate DRIFT actions)
         val followUps = if (followUpQueries.isEmpty()) listOf(question) else followUpQueries
