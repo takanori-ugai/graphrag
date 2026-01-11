@@ -49,6 +49,8 @@ class GlobalSearchEngine(
     private val mapMaxLength: Int = 1_000,
     private val reduceMaxLength: Int = 2_000,
     private val maxContextTokens: Int = 8_000,
+    private val mapParams: ModelParams = ModelParams(jsonResponse = true),
+    private val reduceParams: ModelParams = ModelParams(jsonResponse = false),
     private val encoding: Encoding = Encodings.newLazyEncodingRegistry().getEncoding(EncodingType.CL100K_BASE),
 ) {
     suspend fun search(question: String): GlobalSearchResult =
@@ -135,6 +137,9 @@ class GlobalSearchEngine(
             mapSystemPrompt
                 .replace("{context_data}", context)
                 .replace("{max_length}", mapMaxLength.toString())
+                .let { base ->
+                    if (mapParams.jsonResponse) "$base\nReturn ONLY valid JSON per the schema above." else base
+                }
         val promptTokens = tokenCount(prompt)
         val fullPrompt = "$prompt\n\nUser question: $question"
         val answerText = streamAnswer(fullPrompt)
@@ -196,6 +201,9 @@ class GlobalSearchEngine(
                 .replace("{response_type}", responseType)
                 .replace("{max_length}", reduceMaxLength.toString())
                 .let { prompt -> if (allowGeneralKnowledge) "$prompt\n$generalKnowledgeInstruction" else prompt }
+                .let { base ->
+                    if (reduceParams.jsonResponse) "$base\nReturn ONLY valid JSON per the schema above." else base
+                }
         val promptTokens = tokenCount(reducePrompt)
         val fullPrompt = "$reducePrompt\n\nUser question: $question"
         callbacks.forEach { it.onReduceResponseStart(contextText) }

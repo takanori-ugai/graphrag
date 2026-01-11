@@ -48,6 +48,8 @@ class DriftSearchEngine(
     private val reduceSystemPrompt: String = DRIFT_REDUCE_PROMPT,
     private val responseType: String = "multiple paragraphs",
     private val callbacks: List<QueryCallbacks> = emptyList(),
+    private val primerParams: ModelParams = ModelParams(jsonResponse = true),
+    private val reduceParams: ModelParams = ModelParams(jsonResponse = false),
     private val encoding: Encoding = Encodings.newLazyEncodingRegistry().getEncoding(EncodingType.CL100K_BASE),
     private val maxIterations: Int = 3,
 ) {
@@ -195,6 +197,9 @@ class DriftSearchEngine(
             reduceSystemPrompt
                 .replace("{context_data}", contextText)
                 .replace("{response_type}", responseType)
+                .let { base ->
+                    if (reduceParams.jsonResponse) "$base\nReturn ONLY valid JSON per the schema above." else base
+                }
         val fullPrompt = "$prompt\n\nUser question: $question"
         val promptTokens = encoding.countTokens(fullPrompt)
         val builder = StringBuilder()
@@ -239,6 +244,9 @@ class DriftSearchEngine(
             primerSystemPrompt
                 .replace("{query}", question)
                 .replace("{community_reports}", context)
+                .let { base ->
+                    if (primerParams.jsonResponse) "$base\nReturn ONLY valid JSON per the schema above." else base
+                }
         val promptTokens = encoding.countTokens(prompt)
         val builder = StringBuilder()
         val future = CompletableFuture<String>()

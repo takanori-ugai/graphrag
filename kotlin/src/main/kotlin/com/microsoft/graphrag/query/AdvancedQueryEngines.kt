@@ -65,6 +65,7 @@ class LocalQueryEngine(
     private val columnDelimiter: String = "|",
     private val maxContextChars: Int = 800,
     private val callbacks: List<QueryCallbacks> = emptyList(),
+    private val modelParams: ModelParams = ModelParams(jsonResponse = true),
     private val encoding: Encoding = Encodings.newLazyEncodingRegistry().getEncoding(EncodingType.CL100K_BASE),
 ) {
     suspend fun answer(
@@ -142,7 +143,13 @@ class LocalQueryEngine(
         question: String,
     ): ParsedAnswer {
         val builder = StringBuilder()
-        val finalPrompt = "$systemPrompt\n\nUser question: $question"
+        val promptWithJson =
+            if (modelParams.jsonResponse) {
+                "$systemPrompt\n\nReturn ONLY valid JSON per the schema above."
+            } else {
+                systemPrompt
+            }
+        val finalPrompt = "$promptWithJson\n\nUser question: $question"
         val future = CompletableFuture<String>()
         streamingModel.chat(
             finalPrompt,
