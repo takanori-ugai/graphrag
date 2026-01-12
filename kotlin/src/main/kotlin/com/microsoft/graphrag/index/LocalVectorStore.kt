@@ -11,6 +11,7 @@ import java.nio.file.Path
 
 class LocalVectorStore(
     private val path: Path,
+    private val payloadOverride: Payload? = null,
 ) {
     private val json = Json { prettyPrint = true }
 
@@ -24,6 +25,7 @@ class LocalVectorStore(
     }
 
     fun load(): Payload? {
+        payloadOverride?.let { return it }
         if (!Files.exists(path)) return null
         return runCatching {
             json.decodeFromString<Payload>(Files.readString(path))
