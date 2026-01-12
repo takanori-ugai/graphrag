@@ -6,13 +6,14 @@ import com.microsoft.graphrag.query.BasicQueryEngine
 import com.microsoft.graphrag.query.CollectingQueryCallbacks
 import com.microsoft.graphrag.query.DriftSearchEngine
 import com.microsoft.graphrag.query.GlobalSearchEngine
+import com.microsoft.graphrag.query.IndexLookup
 import com.microsoft.graphrag.query.LocalQueryEngine
 import com.microsoft.graphrag.query.ModelParams
 import com.microsoft.graphrag.query.QueryCallbacks
 import com.microsoft.graphrag.query.QueryConfigLoader
 import com.microsoft.graphrag.query.QueryIndexLoader
+import com.microsoft.graphrag.query.QueryModelConfig
 import com.microsoft.graphrag.query.QueryResult
-import dev.langchain4j.model.openai.OpenAiChatModel
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.runBlocking
@@ -390,24 +391,29 @@ class QueryCommand : Runnable {
 
         val overrideOutputs = data.map { it.toAbsolutePath().normalize() }
         val queryConfig = QueryConfigLoader.load(root, config, overrideOutputs)
-        val indexData = QueryIndexLoader(queryConfig.outputDirs).load()
+        val indexData = QueryIndexLoader(queryConfig.indexes).load()
 
         val apiKey = System.getenv("OPENAI_API_KEY") ?: error("OPENAI_API_KEY environment variable is required for querying.")
-        val chatModelName = queryConfig.chatModel ?: "gpt-4o-mini"
-        val embeddingModelName = queryConfig.embeddingModel ?: "text-embedding-3-small"
-        val chatModel =
-            OpenAiChatModel
-                .builder()
-                .apiKey(apiKey)
-                .modelName(chatModelName)
-                .build()
-        val streamingChatModel =
-            OpenAiStreamingChatModel
-                .builder()
-                .apiKey(apiKey)
-                .modelName(chatModelName)
-                .build()
-        val embeddingModel = defaultEmbeddingModel(apiKey, embeddingModelName)
+        val defaultChat = queryConfig.defaultChatModel ?: QueryModelConfig("gpt-4o-mini")
+        val defaultEmbeddingName = queryConfig.defaultEmbeddingModel ?: "text-embedding-3-small"
+
+        fun buildStreamingModel(modelConfig: QueryModelConfig?): OpenAiStreamingChatModel {
+            val name = modelConfig?.model ?: defaultChat.model ?: "gpt-4o-mini"
+            val params = modelConfig?.params ?: defaultChat.params
+            val builder =
+                OpenAiStreamingChatModel
+                    .builder()
+                    .apiKey(apiKey)
+                    .modelName(name)
+            params.temperature?.let { builder.temperature(it) }
+            params.topP?.let { builder.topP(it) }
+            params.maxTokens?.let { builder.maxTokens(it) }
+            return builder.build()
+        }
+
+        fun buildEmbeddingModel(name: String?): dev.langchain4j.model.embedding.EmbeddingModel =
+            defaultEmbeddingModel(apiKey, name ?: defaultEmbeddingName)
+
         val callbacks = CollectingQueryCallbacks()
         val callbackList: List<QueryCallbacks> = listOf(callbacks)
         val filteredReports = filterCommunityReports(indexData.communityReports, indexData.communityHierarchy, communityLevel)
@@ -416,15 +422,18 @@ class QueryCommand : Runnable {
             when (selectedMethod) {
                 "basic" -> {
                     runBlocking {
+                        val modelConfig = queryConfig.basic.chat ?: defaultChat
                         val engine =
                             BasicQueryEngine(
-                                streamingModel = streamingChatModel,
-                                embeddingModel = embeddingModel,
+                                streamingModel = buildStreamingModel(modelConfig),
+                                embeddingModel = buildEmbeddingModel(queryConfig.basic.embeddingModel),
                                 vectorStore = indexData.vectorStore,
                                 textUnits = indexData.textUnits,
                                 textEmbeddings = indexData.textEmbeddings,
-                                topK = 5,
+                                topK = queryConfig.basic.k,
+                                maxContextTokens = queryConfig.basic.maxContextTokens,
                                 callbacks = callbackList,
+                                systemPrompt = queryConfig.basic.prompt,
                             )
                         if (streaming) {
                             val builder = StringBuilder()
@@ -445,10 +454,11 @@ class QueryCommand : Runnable {
 
                 "local" -> {
                     runBlocking {
+                        val modelConfig = queryConfig.local.chat ?: defaultChat
                         val engine =
                             LocalQueryEngine(
-                                streamingModel = streamingChatModel,
-                                embeddingModel = embeddingModel,
+                                streamingModel = buildStreamingModel(modelConfig),
+                                embeddingModel = buildEmbeddingModel(queryConfig.local.embeddingModel),
                                 vectorStore = indexData.vectorStore,
                                 textUnits = indexData.textUnits,
                                 textEmbeddings = indexData.textEmbeddings,
@@ -460,6 +470,13 @@ class QueryCommand : Runnable {
                                 communities = indexData.communities,
                                 communityReports = filteredReports,
                                 modelParams = ModelParams(jsonResponse = false),
+                                topKEntities = queryConfig.local.topKEntities,
+                                topKRelationships = queryConfig.local.topKRelationships,
+                                maxContextTokens = queryConfig.local.maxContextTokens,
+                                systemPrompt = queryConfig.local.prompt,
+                                textUnitProp = queryConfig.local.textUnitProp,
+                                communityProp = queryConfig.local.communityProp,
+                                conversationHistoryMaxTurns = queryConfig.local.conversationHistoryMaxTurns,
                                 callbacks = callbackList,
                             )
                         if (streaming) {
@@ -481,17 +498,32 @@ class QueryCommand : Runnable {
 
                 "global" -> {
                     runBlocking {
+                        val modelConfig = queryConfig.global.chat ?: defaultChat
                         val engine =
                             GlobalSearchEngine(
-                                streamingModel = streamingChatModel,
+                                streamingModel = buildStreamingModel(modelConfig),
                                 communityReports = filteredReports,
                                 communityReportEmbeddings = indexData.communityReportEmbeddings,
-                                embeddingModel = embeddingModel,
+                                embeddingModel = buildEmbeddingModel(queryConfig.global.embeddingModel),
                                 communityHierarchy = indexData.communityHierarchy,
                                 communityLevel = communityLevel,
                                 dynamicCommunitySelection = dynamicCommunitySelection,
+                                dynamicThreshold = queryConfig.global.dynamic.threshold,
+                                dynamicKeepParent = queryConfig.global.dynamic.keepParent,
+                                dynamicNumRepeats = queryConfig.global.dynamic.numRepeats,
+                                dynamicUseSummary = queryConfig.global.dynamic.useSummary,
+                                dynamicMaxLevel = queryConfig.global.dynamic.maxLevel,
                                 callbacks = callbackList,
                                 responseType = responseType,
+                                allowGeneralKnowledge = queryConfig.global.allowGeneralKnowledge,
+                                generalKnowledgeInstruction =
+                                    queryConfig.global.knowledgePrompt
+                                        ?: GlobalSearchEngine.DEFAULT_GENERAL_KNOWLEDGE_INSTRUCTION,
+                                mapSystemPrompt = queryConfig.global.mapPrompt,
+                                reduceSystemPrompt = queryConfig.global.reducePrompt,
+                                mapMaxLength = queryConfig.global.mapMaxLength,
+                                reduceMaxLength = queryConfig.global.reduceMaxLength,
+                                maxContextTokens = queryConfig.global.maxContextTokens,
                             )
                         if (streaming) {
                             val builder = StringBuilder()
@@ -527,10 +559,12 @@ class QueryCommand : Runnable {
                     runBlocking {
                         val driftCallbacks = CollectingQueryCallbacks()
                         val driftCallbackList: List<QueryCallbacks> = listOf(driftCallbacks)
+                        val localModel = queryConfig.local.chat ?: defaultChat
+                        val localEmbeddingModel = buildEmbeddingModel(queryConfig.local.embeddingModel)
                         val localEngine =
                             LocalQueryEngine(
-                                streamingModel = streamingChatModel,
-                                embeddingModel = embeddingModel,
+                                streamingModel = buildStreamingModel(localModel),
+                                embeddingModel = localEmbeddingModel,
                                 vectorStore = indexData.vectorStore,
                                 textUnits = indexData.textUnits,
                                 textEmbeddings = indexData.textEmbeddings,
@@ -542,27 +576,54 @@ class QueryCommand : Runnable {
                                 communities = indexData.communities,
                                 communityReports = filteredReports,
                                 modelParams = ModelParams(jsonResponse = false),
+                                topKEntities = queryConfig.local.topKEntities,
+                                topKRelationships = queryConfig.local.topKRelationships,
+                                maxContextTokens = queryConfig.local.maxContextTokens,
+                                systemPrompt = queryConfig.local.prompt,
+                                textUnitProp = queryConfig.local.textUnitProp,
+                                communityProp = queryConfig.local.communityProp,
+                                conversationHistoryMaxTurns = queryConfig.local.conversationHistoryMaxTurns,
                                 callbacks = driftCallbackList,
                             )
+                        val globalModel = queryConfig.global.chat ?: defaultChat
+                        val globalEngine =
+                            GlobalSearchEngine(
+                                streamingModel = buildStreamingModel(globalModel),
+                                communityReports = filteredReports,
+                                communityReportEmbeddings = indexData.communityReportEmbeddings,
+                                embeddingModel = buildEmbeddingModel(queryConfig.global.embeddingModel),
+                                communityHierarchy = indexData.communityHierarchy,
+                                communityLevel = communityLevel,
+                                dynamicCommunitySelection = dynamicCommunitySelection,
+                                dynamicThreshold = queryConfig.global.dynamic.threshold,
+                                dynamicKeepParent = queryConfig.global.dynamic.keepParent,
+                                dynamicNumRepeats = queryConfig.global.dynamic.numRepeats,
+                                dynamicUseSummary = queryConfig.global.dynamic.useSummary,
+                                dynamicMaxLevel = queryConfig.global.dynamic.maxLevel,
+                                callbacks = driftCallbackList,
+                                responseType = responseType,
+                                allowGeneralKnowledge = queryConfig.global.allowGeneralKnowledge,
+                                generalKnowledgeInstruction =
+                                    queryConfig.global.knowledgePrompt
+                                        ?: GlobalSearchEngine.DEFAULT_GENERAL_KNOWLEDGE_INSTRUCTION,
+                                mapSystemPrompt = queryConfig.global.mapPrompt,
+                                reduceSystemPrompt = queryConfig.global.reducePrompt,
+                                mapMaxLength = queryConfig.global.mapMaxLength,
+                                reduceMaxLength = queryConfig.global.reduceMaxLength,
+                                maxContextTokens = queryConfig.global.maxContextTokens,
+                            )
+                        val driftModel = queryConfig.drift.chat ?: defaultChat
                         if (streaming) {
                             val engine =
                                 DriftSearchEngine(
-                                    streamingModel = streamingChatModel,
+                                    streamingModel = buildStreamingModel(driftModel),
                                     communityReports = filteredReports,
-                                    globalSearchEngine =
-                                        GlobalSearchEngine(
-                                            streamingModel = streamingChatModel,
-                                            communityReports = filteredReports,
-                                            communityReportEmbeddings = indexData.communityReportEmbeddings,
-                                            embeddingModel = embeddingModel,
-                                            communityHierarchy = indexData.communityHierarchy,
-                                            communityLevel = communityLevel,
-                                            dynamicCommunitySelection = dynamicCommunitySelection,
-                                            callbacks = driftCallbackList,
-                                            responseType = responseType,
-                                        ),
+                                    globalSearchEngine = globalEngine,
                                     localQueryEngine = localEngine,
+                                    primerSystemPrompt = queryConfig.drift.prompt,
+                                    reduceSystemPrompt = queryConfig.drift.reducePrompt,
                                     callbacks = driftCallbackList,
+                                    maxIterations = queryConfig.drift.maxIterations,
                                 )
                             val builder = StringBuilder()
                             engine.streamSearch(query, followUpQueries = driftQuery?.let { listOf(it) } ?: emptyList()).collect { partial ->
@@ -578,22 +639,14 @@ class QueryCommand : Runnable {
                         } else {
                             val engine =
                                 DriftSearchEngine(
-                                    streamingModel = streamingChatModel,
+                                    streamingModel = buildStreamingModel(driftModel),
                                     communityReports = filteredReports,
-                                    globalSearchEngine =
-                                        GlobalSearchEngine(
-                                            streamingModel = streamingChatModel,
-                                            communityReports = filteredReports,
-                                            communityReportEmbeddings = indexData.communityReportEmbeddings,
-                                            embeddingModel = embeddingModel,
-                                            communityHierarchy = indexData.communityHierarchy,
-                                            communityLevel = communityLevel,
-                                            dynamicCommunitySelection = dynamicCommunitySelection,
-                                            callbacks = driftCallbackList,
-                                            responseType = responseType,
-                                        ),
+                                    globalSearchEngine = globalEngine,
                                     localQueryEngine = localEngine,
+                                    primerSystemPrompt = queryConfig.drift.prompt,
+                                    reduceSystemPrompt = queryConfig.drift.reducePrompt,
                                     callbacks = driftCallbackList,
+                                    maxIterations = queryConfig.drift.maxIterations,
                                 )
                             val driftResult =
                                 engine.search(
@@ -630,22 +683,65 @@ class QueryCommand : Runnable {
             } else {
                 result
             }
+        val enrichedContext = attachIndexNames(finalResult.contextRecords, indexData.indexLookup)
+        val mergedResult = finalResult.copy(contextRecords = enrichedContext)
         if (streaming) {
             println()
         } else {
-            println(finalResult.answer)
+            println(mergedResult.answer)
         }
-        if (verbose && finalResult.context.isNotEmpty()) {
+        if (verbose && mergedResult.context.isNotEmpty()) {
             println("\nContext chunks used:")
-            finalResult.context.forEach { chunk ->
+            mergedResult.context.forEach { chunk ->
                 println("- [${chunk.id}] score=${"%.3f".format(chunk.score)} ${chunk.text.take(120)}")
             }
         }
-        if (verbose && finalResult.contextRecords.isNotEmpty()) {
+        if (verbose && mergedResult.contextRecords.isNotEmpty()) {
             println("\nContext records:")
-            finalResult.contextRecords.forEach { (name, records) ->
+            mergedResult.contextRecords.forEach { (name, records) ->
                 val inContext = records.count { it["in_context"] == "true" }
                 println("- $name: $inContext/${records.size} rows marked in_context")
+            }
+        }
+    }
+
+    private fun attachIndexNames(
+        contextRecords: Map<String, List<MutableMap<String, String>>>,
+        lookup: IndexLookup,
+    ): Map<String, List<MutableMap<String, String>>> {
+        if (contextRecords.isEmpty() || lookup.indexNames.size <= 1) return contextRecords
+
+        fun findIndex(record: Map<String, String>): String? {
+            val candidates =
+                listOf(
+                    record["id"],
+                    record["entity"],
+                    record["entity_id"],
+                    record["chunk_id"],
+                    record["community"],
+                    record["community_id"],
+                )
+            candidates.forEach { value ->
+                if (!value.isNullOrBlank()) {
+                    lookup.reportIndex[value]?.let { return it }
+                    lookup.entityIndex[value]?.let { return it }
+                    lookup.textUnitIndex[value]?.let { return it }
+                    value.toIntOrNull()?.let { intId ->
+                        lookup.communityIndex[intId]?.let { return it }
+                    }
+                }
+            }
+            return null
+        }
+
+        return contextRecords.mapValues { (_, records) ->
+            records.map { record ->
+                val indexName = findIndex(record)
+                if (indexName != null) {
+                    record.toMutableMap().apply { this["index_name"] = indexName }
+                } else {
+                    record
+                }
             }
         }
     }

@@ -67,6 +67,10 @@ class LocalQueryEngine(
     private val maxContextChars: Int = 800,
     private val callbacks: List<QueryCallbacks> = emptyList(),
     private val modelParams: ModelParams = ModelParams(jsonResponse = true),
+    private val systemPrompt: String = DEFAULT_LOCAL_SEARCH_SYSTEM_PROMPT,
+    private val textUnitProp: Double = 0.5,
+    private val communityProp: Double = 0.25,
+    private val conversationHistoryMaxTurns: Int = 5,
     private val encoding: Encoding = Encodings.newLazyEncodingRegistry().getEncoding(EncodingType.CL100K_BASE),
 ) {
     suspend fun answer(
@@ -79,13 +83,14 @@ class LocalQueryEngine(
             contextBuilder.buildContext(
                 query = question,
                 conversationHistory = toConversationHistory(conversationHistory),
+                conversationHistoryMaxTurns = conversationHistoryMaxTurns,
                 maxContextTokens = maxContextTokens,
                 topKMappedEntities = topKEntities,
                 topKRelationships = topKRelationships,
                 topKClaims = topKClaims,
                 topKCommunities = topKCommunities,
-                textUnitProp = 0.5,
-                communityProp = 0.25,
+                textUnitProp = textUnitProp,
+                communityProp = communityProp,
                 includeCommunityRank = true,
                 includeEntityRank = true,
                 includeRelationshipWeight = true,
@@ -130,13 +135,14 @@ class LocalQueryEngine(
             .buildContext(
                 query = question,
                 conversationHistory = toConversationHistory(conversationHistory),
+                conversationHistoryMaxTurns = conversationHistoryMaxTurns,
                 maxContextTokens = maxContextTokens,
                 topKMappedEntities = topKEntities,
                 topKRelationships = topKRelationships,
                 topKClaims = topKClaims,
                 topKCommunities = topKCommunities,
-                textUnitProp = 0.5,
-                communityProp = 0.25,
+                textUnitProp = textUnitProp,
+                communityProp = communityProp,
             ).contextChunks
 
     private fun buildPrompt(
@@ -144,7 +150,7 @@ class LocalQueryEngine(
         context: String,
         driftQuery: String?,
     ): String =
-        LOCAL_SEARCH_SYSTEM_PROMPT
+        systemPrompt
             .replace("{context_data}", context)
             .replace("{response_type}", responseType)
             .let { prompt ->
@@ -192,13 +198,14 @@ class LocalQueryEngine(
                 contextBuilder.buildContext(
                     query = question,
                     conversationHistory = toConversationHistory(conversationHistory),
+                    conversationHistoryMaxTurns = conversationHistoryMaxTurns,
                     maxContextTokens = maxContextTokens,
                     topKMappedEntities = topKEntities,
                     topKRelationships = topKRelationships,
                     topKClaims = topKClaims,
                     topKCommunities = topKCommunities,
-                    textUnitProp = 0.5,
-                    communityProp = 0.25,
+                    textUnitProp = textUnitProp,
+                    communityProp = communityProp,
                     includeCommunityRank = true,
                     includeEntityRank = true,
                     includeRelationshipWeight = true,
@@ -440,7 +447,7 @@ private interface ContextResponder {
     ): String
 }
 
-private val LOCAL_SEARCH_SYSTEM_PROMPT =
+internal val DEFAULT_LOCAL_SEARCH_SYSTEM_PROMPT =
     """
 ---Role---
 

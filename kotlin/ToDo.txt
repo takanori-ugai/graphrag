@@ -21,13 +21,13 @@ Done:  - Global search: Python global mode (query/structured_search/global_searc
 Done:  - DRIFT: Python DRIFT (query/structured_search/drift_search/...) is a multi-step planner with primer expansion,
     follow-up action graph, mixed local passes, and serialized state. Kotlin query/DriftSearchEngine.kt runs a single-
     shot merge of global/local context with no planner/actions/state or follow-up execution.
-Todo:  - Config-driven query knobs/prompts: Python api/query.py pulls chat/embedding ids, prompt overrides (map/reduce/
+Done:  - Config-driven query knobs/prompts: Python api/query.py pulls chat/embedding ids, prompt overrides (map/reduce/
     knowledge/local/basic/drift/question gen), and per-mode limits/concurrency from GraphRagConfig + prompt files. Kotlin
     QueryConfigLoader/GraphRagCli hardcode model names, prompts, token budgets, and ignore prompt_tune outputs or general
     knowledge flags.
-Todo:  - Multi-index querying: Python multi_index_* APIs keep indexes separate, tolerate missing optional tables, and let
+Done:  - Multi-index querying: Python multi_index_* APIs keep indexes separate, tolerate missing optional tables, and let
     callers name/index outputs. Kotlin QueryIndexLoader/GraphRagCli merely merge multiple --data dirs into one dataset,
     losing index names and skipping per-index handling for absent covariates/reports/etc.
-Todo:  - Dynamic community selection: Python context_builder/dynamic_community_selection.py LLM-rates reports across the
+Done:  - Dynamic community selection: Python context_builder/dynamic_community_selection.py LLM-rates reports across the
     hierarchy with thresholds/keep_parent/num_repeats/max_level controls. Kotlin GlobalSearchEngine just cosine-sorts
     summaries/embeddings when dynamicCommunitySelection=true; no hierarchical traversal, LLM rating, or config knobs.

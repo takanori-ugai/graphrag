@@ -35,6 +35,14 @@ data class IndexStats(
     val totalRuntime: Double = 0.0,
 )
 
+data class IndexLookup(
+    val indexNames: Set<String> = emptySet(),
+    val textUnitIndex: Map<String, String> = emptyMap(),
+    val entityIndex: Map<String, String> = emptyMap(),
+    val communityIndex: Map<Int, String> = emptyMap(),
+    val reportIndex: Map<String, String> = emptyMap(),
+)
+
 data class QueryIndexData(
     val textUnits: List<TextUnit>,
     val textEmbeddings: List<TextEmbedding>,
@@ -50,16 +58,13 @@ data class QueryIndexData(
     val communityHierarchy: Map<Int, Int>,
     val stats: List<IndexStats> = emptyList(),
     val vectorStore: LocalVectorStore,
+    val indexLookup: IndexLookup = IndexLookup(),
 )
 
-/**
- * Load query-time assets from parquet/JSON outputs. Supports multiple output directories
- * (e.g., base + updates) and falls back to context.json when parquet files are missing.
- */
 class QueryIndexLoader(
-    private val outputDirs: List<Path>,
+    private val outputDirs: List<QueryIndexConfig>,
 ) {
-    constructor(outputDir: Path) : this(listOf(outputDir))
+    constructor(outputDir: Path) : this(listOf(QueryIndexConfig("output", outputDir)))
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -73,12 +78,12 @@ class QueryIndexLoader(
         return mergeOutputs(resolvedOutputs, partials)
     }
 
-    private fun resolveOutputs(candidates: List<Path>): List<Path> {
-        val outputs = mutableListOf<Path>()
+    private fun resolveOutputs(candidates: List<QueryIndexConfig>): List<QueryIndexConfig> {
+        val outputs = mutableListOf<QueryIndexConfig>()
         candidates.forEach { candidate ->
-            val normalized = candidate.toAbsolutePath().normalize()
+            val normalized = candidate.path.toAbsolutePath().normalize()
             if (looksLikeIndexDir(normalized)) {
-                outputs.add(normalized)
+                outputs.add(candidate.copy(path = normalized))
             } else if (Files.exists(normalized) && normalized.isDirectory()) {
                 Files
                     .walk(normalized, 2)
@@ -86,7 +91,14 @@ class QueryIndexLoader(
                         stream
                             .filter { Files.isDirectory(it) }
                             .filter { looksLikeIndexDir(it) }
-                            .forEach { outputs.add(it) }
+                            .forEach { found ->
+                                outputs.add(
+                                    QueryIndexConfig(
+                                        name = "${candidate.name}_${found.fileName}",
+                                        path = found,
+                                    ),
+                                )
+                            }
                     }
             }
         }
@@ -105,37 +117,42 @@ class QueryIndexLoader(
         return markers.any { Files.exists(dir.resolve(it)) }
     }
 
-    private fun loadOutput(outputDir: Path): PartialIndex {
-        val state = readContextState(outputDir)
+    private fun loadOutput(outputDir: QueryIndexConfig): PartialIndex {
+        val state = readContextState(outputDir.path)
 
-        val textUnits = loadTextUnits(outputDir).ifEmpty { state["text_units"] as? List<TextUnit> ?: emptyList() }
+        val textUnits = loadTextUnits(outputDir.path).ifEmpty { state["text_units"] as? List<TextUnit> ?: emptyList() }
         val textEmbeddings =
-            loadTextEmbeddings(outputDir).ifEmpty { state["text_embeddings"] as? List<TextEmbedding> ?: emptyList() }
-        val entities = loadEntities(outputDir).ifEmpty { state["entities"] as? List<Entity> ?: emptyList() }
+            loadTextEmbeddings(outputDir.path).ifEmpty { state["text_embeddings"] as? List<TextEmbedding> ?: emptyList() }
+        val entities = loadEntities(outputDir.path).ifEmpty { state["entities"] as? List<Entity> ?: emptyList() }
         val entityEmbeddings =
-            loadEntityEmbeddings(outputDir).ifEmpty { state["entity_embeddings"] as? List<EntityEmbedding> ?: emptyList() }
+            loadEntityEmbeddings(outputDir.path).ifEmpty {
+                state["entity_embeddings"] as? List<EntityEmbedding> ?: emptyList()
+            }
         val entitySummaries =
-            loadEntitySummaries(outputDir).ifEmpty { state["entity_summaries"] as? List<EntitySummary> ?: emptyList() }
+            loadEntitySummaries(outputDir.path).ifEmpty { state["entity_summaries"] as? List<EntitySummary> ?: emptyList() }
         val relationships =
-            loadRelationships(outputDir).ifEmpty { state["relationships"] as? List<Relationship> ?: emptyList() }
-        val claims = loadClaims(outputDir).ifEmpty { state["claims"] as? List<Claim> ?: emptyList() }
-        val covariates = loadCovariates(outputDir, state)
+            loadRelationships(outputDir.path).ifEmpty { state["relationships"] as? List<Relationship> ?: emptyList() }
+        val claims = loadClaims(outputDir.path).ifEmpty { state["claims"] as? List<Claim> ?: emptyList() }
+        val covariates = loadCovariates(outputDir.path, state)
         val communities =
-            loadCommunityAssignments(outputDir).ifEmpty { state["communities"] as? List<CommunityAssignment> ?: emptyList() }
+            loadCommunityAssignments(outputDir.path)
+                .ifEmpty { state["communities"] as? List<CommunityAssignment> ?: emptyList() }
         val communityReports =
-            loadCommunityReports(outputDir).ifEmpty { state["community_reports"] as? List<CommunityReport> ?: emptyList() }
+            loadCommunityReports(outputDir.path)
+                .ifEmpty { state["community_reports"] as? List<CommunityReport> ?: emptyList() }
         val communityReportEmbeddings =
-            loadCommunityReportEmbeddings(outputDir).ifEmpty {
+            loadCommunityReportEmbeddings(outputDir.path).ifEmpty {
                 state["community_report_embeddings"] as? List<CommunityReportEmbedding> ?: emptyList()
             }
         val communityHierarchy =
-            loadCommunityHierarchy(outputDir)
+            loadCommunityHierarchy(outputDir.path)
                 ?: (state["community_hierarchy"] as? Map<Int, Int> ?: emptyMap())
-        val stats = loadStats(outputDir)
-        val vectorStorePath = outputDir.resolve("vector_store.json")
+        val stats = loadStats(outputDir.path)
+        val vectorStorePath = outputDir.path.resolve("vector_store.json")
         val vectorPayload = LocalVectorStore(vectorStorePath).load()
 
         return PartialIndex(
+            name = outputDir.name,
             textUnits = textUnits,
             textEmbeddings = textEmbeddings,
             entities = entities,
@@ -155,7 +172,7 @@ class QueryIndexLoader(
     }
 
     private fun mergeOutputs(
-        outputs: List<Path>,
+        outputs: List<QueryIndexConfig>,
         partials: List<PartialIndex>,
     ): QueryIndexData {
         fun <T, K> mergeUnique(
@@ -167,34 +184,48 @@ class QueryIndexLoader(
             return acc.values.toList()
         }
 
-        val textUnits = mergeUnique(partials.map { it.textUnits }) { it.id }
-        val entities = mergeUnique(partials.map { it.entities }) { it.id }
-        val entitySummaries = mergeUnique(partials.map { it.entitySummaries }) { it.entityId }
+        val applyTags = outputs.size > 1
+        var communityOffset = 0
+        val remapped =
+            partials.mapIndexed { idx, partial ->
+                val name = outputs.getOrNull(idx)?.name ?: partial.name
+                val result = remapPartial(partial, name, communityOffset, applyTags)
+                if (applyTags) {
+                    communityOffset = result.nextCommunityOffset
+                }
+                result
+            }
+        val updatedPartials = remapped.map { it.partial }
+        val lookup = mergeLookups(remapped.map { it.lookup })
+
+        val textUnits = mergeUnique(updatedPartials.map { it.textUnits }) { it.id }
+        val entities = mergeUnique(updatedPartials.map { it.entities }) { it.id }
+        val entitySummaries = mergeUnique(updatedPartials.map { it.entitySummaries }) { it.entityId }
         val relationships =
-            mergeUnique(partials.map { it.relationships }) { rel ->
+            mergeUnique(updatedPartials.map { it.relationships }) { rel ->
                 rel.id ?: "${rel.sourceId}:${rel.targetId}:${rel.type}"
             }
-        val claims = partials.flatMap { it.claims }
+        val claims = updatedPartials.flatMap { it.claims }
         val communities =
-            mergeUnique(partials.map { it.communities }) { "${it.entityId}:${it.communityId}" }
+            mergeUnique(updatedPartials.map { it.communities }) { "${it.entityId}:${it.communityId}" }
         val communityReports =
-            mergeUnique(partials.map { it.communityReports }) { report ->
+            mergeUnique(updatedPartials.map { it.communityReports }) { report ->
                 report.id ?: "${report.communityId}:${report.parentCommunityId ?: -1}"
             }
         val communityReportEmbeddings =
-            mergeUnique(partials.map { it.communityReportEmbeddings }) { it.communityId }
+            mergeUnique(updatedPartials.map { it.communityReportEmbeddings }) { it.communityId }
         val communityHierarchy = linkedMapOf<Int, Int>()
-        partials.forEach { part -> part.communityHierarchy.forEach { (k, v) -> communityHierarchy[k] = v } }
-        val covariates = mergeCovariates(partials)
-        val stats = partials.mapNotNull { it.stats }
+        updatedPartials.forEach { part -> part.communityHierarchy.forEach { (k, v) -> communityHierarchy[k] = v } }
+        val covariates = mergeCovariates(updatedPartials)
+        val stats = updatedPartials.mapNotNull { it.stats }
 
         val textEmbeddings =
-            mergeUnique(partials.map { it.textEmbeddings }) { it.chunkId }.ifEmpty {
-                partials.mapNotNull { it.vectorPayload?.textEmbeddings }.flatten()
+            mergeUnique(updatedPartials.map { it.textEmbeddings }) { it.chunkId }.ifEmpty {
+                updatedPartials.mapNotNull { it.vectorPayload?.textEmbeddings }.flatten()
             }
         val entityEmbeddings =
-            mergeUnique(partials.map { it.entityEmbeddings }) { it.entityId }.ifEmpty {
-                partials.mapNotNull { it.vectorPayload?.entityEmbeddings }.flatten()
+            mergeUnique(updatedPartials.map { it.entityEmbeddings }) { it.entityId }.ifEmpty {
+                updatedPartials.mapNotNull { it.vectorPayload?.entityEmbeddings }.flatten()
             }
 
         val mergedPayload =
@@ -203,8 +234,8 @@ class QueryIndexLoader(
                 entityEmbeddings = entityEmbeddings,
             )
         val vectorStorePath =
-            partials.firstNotNullOfOrNull { it.vectorStorePath }
-                ?: outputs.first().resolve("vector_store.json")
+            updatedPartials.firstNotNullOfOrNull { it.vectorStorePath }
+                ?: outputs.first().path.resolve("vector_store.json")
 
         return QueryIndexData(
             textUnits = textUnits,
@@ -221,8 +252,195 @@ class QueryIndexLoader(
             communityHierarchy = communityHierarchy,
             stats = stats,
             vectorStore = LocalVectorStore(vectorStorePath, mergedPayload),
+            indexLookup = lookup,
         )
     }
+
+    private data class RemapResult(
+        val partial: PartialIndex,
+        val lookup: IndexLookup,
+        val nextCommunityOffset: Int,
+    )
+
+    private fun remapPartial(
+        partial: PartialIndex,
+        name: String,
+        communityOffset: Int,
+        applyTags: Boolean,
+    ): RemapResult {
+        val safeName = sanitizeName(name)
+        if (!applyTags) {
+            val lookup =
+                IndexLookup(
+                    indexNames = setOf(safeName),
+                    textUnitIndex = partial.textUnits.associate { it.id to safeName },
+                    entityIndex =
+                        partial.entities.associate { it.id to safeName } +
+                            partial.entities.mapNotNull { entity ->
+                                entity.shortId?.let { it to safeName }
+                            },
+                    communityIndex = buildCommunityIndex(partial, safeName),
+                    reportIndex = buildReportIndex(partial, safeName),
+                )
+            return RemapResult(partial.copy(name = safeName), lookup, communityOffset)
+        }
+
+        val prefix = "$safeName-"
+        val communityShift = mutableMapOf<Int, Int>()
+        val shift: (Int?) -> Int? = { id ->
+            id?.let { value ->
+                if (value < 0) {
+                    value
+                } else {
+                    communityShift.getOrPut(value) { value + communityOffset }
+                }
+            }
+        }
+
+        val textUnits = partial.textUnits.map { unit -> unit.copy(id = prefix + unit.id, chunkId = prefix + unit.chunkId) }
+        val textEmbeddings = partial.textEmbeddings.map { embedding -> embedding.copy(chunkId = prefix + embedding.chunkId) }
+        val entities =
+            partial.entities.map { entity ->
+                entity.copy(
+                    id = prefix + entity.id,
+                    sourceChunkId = prefix + entity.sourceChunkId,
+                    communityIds = entity.communityIds.mapNotNull { shift(it) },
+                    textUnitIds = entity.textUnitIds.map { prefix + it },
+                    shortId = entity.shortId?.let { prefix + it } ?: prefix + entity.id,
+                )
+            }
+        val entityEmbeddings = partial.entityEmbeddings.map { it.copy(entityId = prefix + it.entityId) }
+        val entitySummaries = partial.entitySummaries.map { it.copy(entityId = prefix + it.entityId) }
+        val relationships =
+            partial.relationships.map { rel ->
+                rel.copy(
+                    sourceId = prefix + rel.sourceId,
+                    targetId = prefix + rel.targetId,
+                    sourceChunkId = prefix + rel.sourceChunkId,
+                    textUnitIds = rel.textUnitIds.map { prefix + it },
+                    id = rel.id?.let { prefix + it },
+                )
+            }
+        val claims = partial.claims
+        val covariates =
+            partial.covariates.mapValues { (_, values) ->
+                values.map { cov ->
+                    cov.copy(
+                        id = prefix + cov.id.ifBlank { "${cov.subjectId}-${cov.covariateType}" },
+                        subjectId = prefix + cov.subjectId,
+                    )
+                }
+            }
+        val communities =
+            partial.communities.map { assignment ->
+                val shifted = shift(assignment.communityId) ?: assignment.communityId + communityOffset
+                assignment.copy(
+                    entityId = prefix + assignment.entityId,
+                    communityId = shifted,
+                )
+            }
+        val communityReports =
+            partial.communityReports.map { report ->
+                val shiftedId = shift(report.communityId) ?: (report.communityId + communityOffset)
+                val shiftedParent = shift(report.parentCommunityId)
+                report.copy(
+                    communityId = shiftedId,
+                    parentCommunityId = shiftedParent,
+                    id = report.id?.let { "$prefix$it" },
+                    shortId = report.shortId?.let { "$prefix$it" } ?: "$prefix$shiftedId",
+                    attributes = report.attributes + ("index_name" to safeName),
+                )
+            }
+        val communityReportEmbeddings =
+            partial.communityReportEmbeddings.map { embedding ->
+                embedding.copy(communityId = shift(embedding.communityId) ?: (embedding.communityId + communityOffset))
+            }
+        val communityHierarchy =
+            partial.communityHierarchy
+                .mapKeys { shift(it.key) ?: (it.key + communityOffset) }
+                .mapValues { shift(it.value) ?: (it.value + communityOffset) }
+
+        val shiftedPartial =
+            PartialIndex(
+                name = safeName,
+                textUnits = textUnits,
+                textEmbeddings = textEmbeddings,
+                entities = entities,
+                entityEmbeddings = entityEmbeddings,
+                entitySummaries = entitySummaries,
+                relationships = relationships,
+                claims = claims,
+                covariates = covariates,
+                communities = communities,
+                communityReports = communityReports,
+                communityReportEmbeddings = communityReportEmbeddings,
+                communityHierarchy = communityHierarchy,
+                vectorStorePath = partial.vectorStorePath,
+                vectorPayload = rewriteVectorPayload(partial.vectorPayload, prefix),
+                stats = partial.stats,
+            )
+        val maxCommunity = communityShift.values.maxOrNull() ?: (communityOffset - 1)
+        val nextOffset = if (maxCommunity < communityOffset) communityOffset else maxCommunity + 1
+        val lookup =
+            IndexLookup(
+                indexNames = setOf(safeName),
+                textUnitIndex = textUnits.associate { it.id to safeName },
+                entityIndex =
+                    entities.associate { it.id to safeName } +
+                        entities.mapNotNull { entity ->
+                            entity.shortId?.let { it to safeName }
+                        },
+                communityIndex = buildCommunityIndex(shiftedPartial, safeName),
+                reportIndex = buildReportIndex(shiftedPartial, safeName),
+            )
+        return RemapResult(shiftedPartial, lookup, nextOffset)
+    }
+
+    private fun mergeLookups(lookups: List<IndexLookup>): IndexLookup =
+        IndexLookup(
+            indexNames = lookups.flatMap { it.indexNames }.toSet(),
+            textUnitIndex = lookups.flatMap { it.textUnitIndex.entries }.associate { it.toPair() },
+            entityIndex = lookups.flatMap { it.entityIndex.entries }.associate { it.toPair() },
+            communityIndex = lookups.flatMap { it.communityIndex.entries }.associate { it.toPair() },
+            reportIndex = lookups.flatMap { it.reportIndex.entries }.associate { it.toPair() },
+        )
+
+    private fun buildCommunityIndex(
+        partial: PartialIndex,
+        name: String,
+    ): Map<Int, String> {
+        val ids = mutableSetOf<Int>()
+        ids.addAll(partial.communityReports.map { it.communityId })
+        ids.addAll(partial.communities.map { it.communityId })
+        ids.addAll(partial.communityHierarchy.keys.filter { it >= 0 })
+        ids.addAll(partial.communityHierarchy.values.filter { it >= 0 })
+        return ids.associateWith { name }
+    }
+
+    private fun buildReportIndex(
+        partial: PartialIndex,
+        name: String,
+    ): Map<String, String> {
+        val mapping = mutableMapOf<String, String>()
+        partial.communityReports.forEach { report ->
+            report.id?.let { mapping[it] = name }
+            report.shortId?.let { mapping[it] = name }
+            mapping[report.communityId.toString()] = name
+        }
+        return mapping
+    }
+
+    private fun rewriteVectorPayload(
+        payload: Payload?,
+        prefix: String,
+    ): Payload? {
+        payload ?: return null
+        val textEmbeddings = payload.textEmbeddings.map { it.copy(chunkId = prefix + it.chunkId) }
+        val entityEmbeddings = payload.entityEmbeddings.map { it.copy(entityId = prefix + it.entityId) }
+        return Payload(textEmbeddings = textEmbeddings, entityEmbeddings = entityEmbeddings)
+    }
+
+    private fun sanitizeName(name: String): String = name.trim().ifBlank { "index" }.replace("\\s+".toRegex(), "_")
 
     private fun mergeCovariates(partials: List<PartialIndex>): Map<String, List<Covariate>> {
         val grouped = linkedMapOf<String, MutableMap<String, Covariate>>()
@@ -538,6 +756,7 @@ class QueryIndexLoader(
 }
 
 private data class PartialIndex(
+    val name: String,
     val textUnits: List<TextUnit>,
     val textEmbeddings: List<TextEmbedding>,
     val entities: List<Entity>,

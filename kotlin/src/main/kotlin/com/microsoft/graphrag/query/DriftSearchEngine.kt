@@ -164,8 +164,8 @@ class DriftSearchEngine(
     private val communityReports: List<CommunityReport>,
     private val globalSearchEngine: GlobalSearchEngine? = null,
     private val localQueryEngine: LocalQueryEngine,
-    private val primerSystemPrompt: String = DRIFT_PRIMER_PROMPT,
-    private val reduceSystemPrompt: String = DRIFT_REDUCE_PROMPT,
+    private val primerSystemPrompt: String = DEFAULT_DRIFT_PRIMER_PROMPT,
+    private val reduceSystemPrompt: String = DEFAULT_DRIFT_REDUCE_PROMPT,
     private val responseType: String = "multiple paragraphs",
     private val callbacks: List<QueryCallbacks> = emptyList(),
     private val primerParams: ModelParams = ModelParams(jsonResponse = true),
@@ -506,7 +506,7 @@ class DriftSearchEngine(
     }
 
     companion object {
-        private val DRIFT_PRIMER_PROMPT =
+        internal val DEFAULT_DRIFT_PRIMER_PROMPT =
             """
             You are a helpful agent designed to reason over a knowledge graph in response to a user query.
             This is a unique knowledge graph where edges are freeform text rather than verb operators. You will begin your reasoning looking at a summary of the content of the most relevant communites and will provide:
@@ -537,7 +537,7 @@ class DriftSearchEngine(
 
             Begin:
             """.trimIndent()
-        private val DRIFT_REDUCE_PROMPT =
+        internal val DEFAULT_DRIFT_REDUCE_PROMPT =
             """
             ---Role---
 

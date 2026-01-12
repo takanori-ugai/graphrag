@@ -51,7 +51,7 @@ class BasicQueryEngine(
     private val maxContextTokens: Int = 12_000,
     private val columnDelimiter: String = "|",
     private val callbacks: List<QueryCallbacks> = emptyList(),
-    private val systemPrompt: String = BASIC_SEARCH_SYSTEM_PROMPT,
+    private val systemPrompt: String = DEFAULT_BASIC_SEARCH_SYSTEM_PROMPT,
     private val encoding: Encoding = Encodings.newLazyEncodingRegistry().getEncoding(EncodingType.CL100K_BASE),
 ) {
     suspend fun answer(
@@ -185,7 +185,7 @@ class BasicQueryEngine(
         )
 }
 
-private val BASIC_SEARCH_SYSTEM_PROMPT =
+internal val DEFAULT_BASIC_SEARCH_SYSTEM_PROMPT =
     """
 ---Role---
 

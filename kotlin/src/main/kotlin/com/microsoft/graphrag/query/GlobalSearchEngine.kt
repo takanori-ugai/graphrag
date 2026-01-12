@@ -9,14 +9,12 @@ import dev.langchain4j.model.chat.response.ChatResponse
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler
 import dev.langchain4j.model.embedding.EmbeddingModel
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel
-import dev.langchain4j.model.output.Response
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -38,6 +36,29 @@ data class GlobalSearchResult(
     val outputTokensCategories: Map<String, Int>,
 )
 
+private data class ContextBuildResult(
+    val chunks: List<String>,
+    val contextRecords: Map<String, List<MutableMap<String, String>>>,
+    val llmCalls: Int,
+    val promptTokens: Int,
+    val outputTokens: Int,
+)
+
+private data class SelectionResult(
+    val reports: List<CommunityReport>,
+    val contextRecords: Map<String, List<MutableMap<String, String>>>,
+    val llmCalls: Int,
+    val promptTokens: Int,
+    val outputTokens: Int,
+)
+
+private data class RatingResult(
+    val communityId: Int,
+    val rating: Int,
+    val promptTokens: Int,
+    val outputTokens: Int,
+)
+
 /**
  * Global search engine that mirrors Python's map-reduce flow over community reports.
  */
@@ -49,12 +70,18 @@ class GlobalSearchEngine(
     private val communityHierarchy: Map<Int, Int> = emptyMap(),
     private val communityLevel: Int? = null,
     private val dynamicCommunitySelection: Boolean = false,
+    private val dynamicThreshold: Int = 1,
+    private val dynamicKeepParent: Boolean = false,
+    private val dynamicNumRepeats: Int = 1,
+    private val dynamicUseSummary: Boolean = false,
+    private val dynamicMaxLevel: Int = 2,
     private val callbacks: List<QueryCallbacks> = emptyList(),
-    private val mapSystemPrompt: String = MAP_SYSTEM_PROMPT,
-    private val reduceSystemPrompt: String = REDUCE_SYSTEM_PROMPT,
+    private val mapSystemPrompt: String = DEFAULT_MAP_SYSTEM_PROMPT,
+    private val reduceSystemPrompt: String = DEFAULT_REDUCE_SYSTEM_PROMPT,
     private val responseType: String = "multiple paragraphs",
     private val allowGeneralKnowledge: Boolean = false,
-    private val generalKnowledgeInstruction: String = GENERAL_KNOWLEDGE_INSTRUCTION,
+    private val generalKnowledgeInstruction: String = DEFAULT_GENERAL_KNOWLEDGE_INSTRUCTION,
+    private val ratingPrompt: String = DEFAULT_COMMUNITY_RATING_PROMPT,
     private val mapMaxLength: Int = 1_000,
     private val reduceMaxLength: Int = 2_000,
     private val maxContextTokens: Int = 8_000,
@@ -62,19 +89,14 @@ class GlobalSearchEngine(
     private val reduceParams: ModelParams = ModelParams(jsonResponse = false),
     private val encoding: Encoding = Encodings.newLazyEncodingRegistry().getEncoding(EncodingType.CL100K_BASE),
 ) {
-    private val communityEmbeddingCache =
-        mutableMapOf<Int, List<Double>>().apply {
-            communityReportEmbeddings.forEach { put(it.communityId, it.vector) }
-        }
-
     suspend fun search(question: String): GlobalSearchResult =
         coroutineScope {
-            val contextChunks = buildContextChunks(question)
-            callbacks.forEach { it.onContext(mapOf("reports" to contextChunks.map { mutableMapOf("in_context" to "true") })) }
-            callbacks.forEach { it.onMapResponseStart(contextChunks) }
+            val contextResult = buildContextChunks(question)
+            callbacks.forEach { it.onContext(contextResult.contextRecords) }
+            callbacks.forEach { it.onMapResponseStart(contextResult.chunks) }
 
             val mapResponses =
-                contextChunks
+                contextResult.chunks
                     .map { chunk -> async { mapStep(question, chunk) } }
                     .awaitAll()
             callbacks.forEach { it.onMapResponseEnd(mapResponses) }
@@ -83,19 +105,19 @@ class GlobalSearchEngine(
 
             val llmCallsCategories =
                 mapOf(
-                    "build_context" to 0,
+                    "build_context" to contextResult.llmCalls,
                     "map" to mapResponses.sumOf { it.llmCalls },
                     "reduce" to reduceResult.llmCalls,
                 )
             val promptTokensCategories =
                 mapOf(
-                    "build_context" to 0,
+                    "build_context" to contextResult.promptTokens,
                     "map" to mapResponses.sumOf { it.promptTokens },
                     "reduce" to reduceResult.promptTokens,
                 )
             val outputTokensCategories =
                 mapOf(
-                    "build_context" to 0,
+                    "build_context" to contextResult.outputTokens,
                     "map" to mapResponses.sumOf { it.outputTokens },
                     "reduce" to reduceResult.outputTokens,
                 )
@@ -104,7 +126,7 @@ class GlobalSearchEngine(
                 answer = reduceResult.answer,
                 mapResponses = mapResponses,
                 reduceContextText = reduceResult.contextText,
-                contextRecords = mapOf("reports" to contextChunks.map { mutableMapOf("in_context" to "true") }),
+                contextRecords = contextResult.contextRecords,
                 llmCalls = llmCallsCategories.values.sum(),
                 promptTokens = promptTokensCategories.values.sum(),
                 outputTokens = outputTokensCategories.values.sum(),
@@ -114,22 +136,25 @@ class GlobalSearchEngine(
             )
         }
 
-    private suspend fun buildContextChunks(question: String): List<String> {
-        if (communityReports.isEmpty()) return emptyList()
+    private suspend fun buildContextChunks(question: String): ContextBuildResult {
+        if (communityReports.isEmpty()) return ContextBuildResult(emptyList(), emptyMap(), 0, 0, 0)
+        val selection = selectReports(question)
         val header = listOf("id", "title", "summary", "rank").joinToString("|")
-        val sorted = selectReports(question)
+        val ratingLookup = selection.contextRecords["reports"]?.associateBy { it["id"] ?: "" }.orEmpty()
 
         val chunks = mutableListOf<String>()
         var current = StringBuilder("-----Reports-----\n$header\n")
         var tokens = tokenCount(current.toString())
-        for (report in sorted) {
-            val row =
+        val records = mutableListOf<MutableMap<String, String>>()
+        for (report in selection.reports) {
+            val rowParts =
                 listOf(
                     report.id ?: report.communityId.toString(),
                     report.title ?: report.communityId.toString(),
                     report.summary,
                     (report.rank ?: 0.0).toString(),
-                ).joinToString("|") + "\n"
+                )
+            val row = rowParts.joinToString("|") + "\n"
             val rowTokens = tokenCount(row)
             if (tokens + rowTokens > maxContextTokens && current.isNotEmpty()) {
                 chunks += current.toString().trimEnd()
@@ -138,35 +163,125 @@ class GlobalSearchEngine(
             }
             current.append(row)
             tokens += rowTokens
+            records +=
+                header
+                    .split("|")
+                    .zip(rowParts)
+                    .toMap()
+                    .toMutableMap()
+                    .apply {
+                        this["in_context"] = "true"
+                        ratingLookup[report.communityId.toString()]?.get("rating")?.let { this["rating"] = it }
+                    }
         }
         if (current.isNotEmpty()) chunks += current.toString().trimEnd()
-        return chunks
+        val contextRecords =
+            if (records.isNotEmpty()) {
+                selection.contextRecords.toMutableMap().apply {
+                    this["reports"] = records
+                }
+            } else {
+                selection.contextRecords
+            }
+        return ContextBuildResult(
+            chunks = chunks,
+            contextRecords = contextRecords,
+            llmCalls = selection.llmCalls,
+            promptTokens = selection.promptTokens,
+            outputTokens = selection.outputTokens,
+        )
     }
 
-    private suspend fun selectReports(question: String): List<CommunityReport> {
+    private suspend fun selectReports(question: String): SelectionResult {
         val filtered =
             if (communityLevel != null) {
                 communityReports.filter { levelOf(it.communityId) == communityLevel }
             } else {
                 communityReports
             }
-        if (!dynamicCommunitySelection || embeddingModel == null) {
-            return filtered.sortedByDescending { it.rank ?: 0.0 }
+        if (!dynamicCommunitySelection) {
+            val sorted = filtered.sortedByDescending { it.rank ?: 0.0 }
+            return SelectionResult(sorted, emptyMap(), 0, 0, 0)
         }
 
-        val queryEmbedding = embed(question) ?: return filtered.sortedByDescending { it.rank ?: 0.0 }
-        val scored =
-            filtered.mapNotNull { report ->
-                val reportEmbedding =
-                    communityEmbeddingCache[report.communityId]
-                        ?: embed(report.summary)?.also { vector -> communityEmbeddingCache[report.communityId] = vector }
-                val score = reportEmbedding?.let { cosineSimilarity(queryEmbedding, it) } ?: return@mapNotNull null
-                report to score
-            }
-        if (scored.isEmpty()) {
-            return filtered.sortedByDescending { it.rank ?: 0.0 }
+        val reportsById = filtered.associateBy { it.communityId }
+        if (reportsById.isEmpty()) return SelectionResult(emptyList(), emptyMap(), 0, 0, 0)
+        val maxLevel = communityLevel?.let { min(it, dynamicMaxLevel) } ?: dynamicMaxLevel
+        val levels = reportsById.values.groupBy { levelOf(it.communityId) }
+        var queue = levels[0]?.map { it.communityId } ?: emptyList()
+        var level = 0
+        val ratings = mutableMapOf<Int, Int>()
+        var llmCalls = 0
+        var promptTokens = 0
+        var outputTokens = 0
+        val selected = mutableSetOf<Int>()
+        val children = mutableMapOf<Int, MutableList<Int>>()
+        communityHierarchy.forEach { (child, parent) ->
+            children.getOrPut(parent) { mutableListOf() }.add(child)
         }
-        return scored.sortedByDescending { it.second }.map { it.first }
+
+        while (queue.isNotEmpty() && level <= maxLevel) {
+            val results =
+                coroutineScope {
+                    queue
+                        .map { id ->
+                            val report = reportsById[id]
+                            async {
+                                report?.let { rateCommunity(question, it) }
+                            }
+                        }.awaitAll()
+                }.filterNotNull()
+
+            val next = mutableListOf<Int>()
+            for (result in results) {
+                ratings[result.communityId] = result.rating
+                llmCalls += 1
+                promptTokens += result.promptTokens
+                outputTokens += result.outputTokens
+                if (result.rating >= dynamicThreshold) {
+                    selected += result.communityId
+                    children[result.communityId]?.filter { reportsById.containsKey(it) }?.let { next.addAll(it) }
+                    if (!dynamicKeepParent) {
+                        communityHierarchy[result.communityId]?.let { parent -> selected.remove(parent) }
+                    }
+                }
+            }
+            queue = next
+            level += 1
+            if (queue.isEmpty() && selected.isEmpty() && level <= maxLevel) {
+                queue = levels[level]?.map { it.communityId } ?: emptyList()
+            }
+        }
+
+        val selectedReports =
+            if (selected.isNotEmpty()) {
+                selected.mapNotNull { reportsById[it] }
+            } else {
+                filtered.sortedByDescending { it.rank ?: 0.0 }
+            }
+        val ratingRecords =
+            if (ratings.isNotEmpty()) {
+                mapOf(
+                    "reports" to
+                        ratings.map { (id, rating) ->
+                            mutableMapOf(
+                                "id" to id.toString(),
+                                "rating" to rating.toString(),
+                                "in_context" to if (id in selected) "true" else "false",
+                            )
+                        },
+                )
+            } else {
+                emptyMap()
+            }
+
+        return SelectionResult(
+            reports = selectedReports.sortedByDescending { it.rank ?: 0.0 },
+            contextRecords = ratingRecords,
+            llmCalls = llmCalls,
+            promptTokens = promptTokens,
+            outputTokens = outputTokens,
+        )
     }
 
     private fun levelOf(communityId: Int): Int {
@@ -181,17 +296,51 @@ class GlobalSearchEngine(
         return level
     }
 
-    private suspend fun embed(text: String): List<Double>? =
-        withContext(kotlinx.coroutines.Dispatchers.IO) {
-            runCatching {
-                val response: Response<dev.langchain4j.data.embedding.Embedding> = embeddingModel?.embed(text) ?: return@runCatching null
-                response
-                    .content()
-                    ?.vector()
-                    ?.asList()
-                    ?.map { it.toDouble() }
-            }.getOrNull()
+    private suspend fun rateCommunity(
+        question: String,
+        report: CommunityReport,
+    ): RatingResult {
+        val description =
+            if (dynamicUseSummary || report.fullContent.isNullOrBlank()) {
+                report.summary
+            } else {
+                report.fullContent ?: report.summary
+            }
+        val prompt =
+            ratingPrompt
+                .replace("{description}", description)
+                .replace("{question}", question)
+        var promptTokens = 0
+        var outputTokens = 0
+        val ratings = mutableListOf<Int>()
+        repeat(dynamicNumRepeats.coerceAtLeast(1)) {
+            promptTokens += tokenCount(prompt)
+            val answer = streamAnswer(prompt)
+            outputTokens += tokenCount(answer)
+            val rating =
+                runCatching {
+                    val element = Json.parseToJsonElement(answer)
+                    (element as? JsonObject)
+                        ?.get("rating")
+                        ?.jsonPrimitive
+                        ?.content
+                        ?.toIntOrNull()
+                }.getOrNull() ?: 1
+            ratings += rating
         }
+        val rating =
+            ratings
+                .groupingBy { it }
+                .eachCount()
+                .maxByOrNull { it.value }
+                ?.key ?: 1
+        return RatingResult(
+            communityId = report.communityId,
+            rating = rating,
+            promptTokens = promptTokens,
+            outputTokens = outputTokens,
+        )
+    }
 
     private suspend fun mapStep(
         question: String,
@@ -303,23 +452,6 @@ class GlobalSearchEngine(
 
     private fun tokenCount(text: String): Int = encoding.countTokens(text)
 
-    private fun cosineSimilarity(
-        a: List<Double>,
-        b: List<Double>,
-    ): Double {
-        if (a.isEmpty() || b.isEmpty() || a.size != b.size) return 0.0
-        var dot = 0.0
-        var magA = 0.0
-        var magB = 0.0
-        for (i in a.indices) {
-            dot += a[i] * b[i]
-            magA += a[i] * a[i]
-            magB += b[i] * b[i]
-        }
-        val denom = kotlin.math.sqrt(magA) * kotlin.math.sqrt(magB)
-        return if (denom == 0.0) 0.0 else dot / denom
-    }
-
     private fun streamAnswer(prompt: String): String {
         val builder = StringBuilder()
         val future = CompletableFuture<String>()
@@ -345,14 +477,14 @@ class GlobalSearchEngine(
 
     fun streamSearch(question: String): Flow<String> =
         callbackFlow {
-            val contextChunks = buildContextChunks(question)
-            callbacks.forEach { it.onContext(mapOf("reports" to contextChunks.map { mutableMapOf("in_context" to "true") })) }
-            callbacks.forEach { it.onMapResponseStart(contextChunks) }
+            val contextResult = buildContextChunks(question)
+            callbacks.forEach { it.onContext(contextResult.contextRecords) }
+            callbacks.forEach { it.onMapResponseStart(contextResult.chunks) }
 
             val mapResponses =
                 kotlinx.coroutines.runBlocking {
                     coroutineScope {
-                        contextChunks.map { chunk -> async { mapStep(question, chunk) } }.awaitAll()
+                        contextResult.chunks.map { chunk -> async { mapStep(question, chunk) } }.awaitAll()
                     }
                 }
             callbacks.forEach { it.onMapResponseEnd(mapResponses) }
@@ -423,7 +555,27 @@ class GlobalSearchEngine(
     companion object {
         private const val NO_DATA_ANSWER = "I do not know."
 
-        private val MAP_SYSTEM_PROMPT: String =
+        internal val DEFAULT_COMMUNITY_RATING_PROMPT =
+            """
+            ---Role---
+            You are a helpful assistant responsible for deciding whether the provided information is useful in answering a given question, even if it is only partially relevant.
+            ---Goal---
+            On a scale from 0 to 5, please rate how relevant or helpful is the provided information in answering the question.
+            ---Information---
+            {description}
+            ---Question---
+            {question}
+            ---Target response length and format---
+            Please response in the following JSON format with two entries:
+            - "reason": the reasoning of your rating, please include information that you have considered.
+            - "rating": the relevancy rating from 0 to 5, where 0 is the least relevant and 5 is the most relevant.
+            {
+                "reason": str,
+                "rating": int.
+            }
+            """.trimIndent()
+
+        internal val DEFAULT_MAP_SYSTEM_PROMPT: String =
             """
             ---Role---
 
@@ -505,7 +657,7 @@ class GlobalSearchEngine(
             }}
             """.trimIndent()
 
-        private val REDUCE_SYSTEM_PROMPT: String =
+        internal val DEFAULT_REDUCE_SYSTEM_PROMPT: String =
             """
             ---Role---
 
@@ -583,7 +735,7 @@ class GlobalSearchEngine(
             Add sections and commentary to the response as appropriate for the length and format. Style the response in markdown.
             """.trimIndent()
 
-        private val GENERAL_KNOWLEDGE_INSTRUCTION: String =
+        internal val DEFAULT_GENERAL_KNOWLEDGE_INSTRUCTION: String =
             """
             The response may also include relevant real-world knowledge outside the dataset, but it must be explicitly annotated with a verification tag [LLM: verify]. For example:
             "This is an example sentence supported by real-world knowledge [LLM: verify]."
