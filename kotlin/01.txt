@@ -1,0 +1,4 @@
+
+› I am converting python program into kotlin. Original python program exists in ../graphrag/ . I am tackling query part
+  now. Please complete the task by following ToDo.txt. Run ./gradlee build to verify the code and run ./gradlew
+  ktlintFormat to fix ktlint error.

@@ -4,15 +4,19 @@ import com.knuddels.jtokkit.Encodings
 import com.knuddels.jtokkit.api.Encoding
 import com.knuddels.jtokkit.api.EncodingType
 import com.microsoft.graphrag.index.CommunityReport
+import com.microsoft.graphrag.index.CommunityReportEmbedding
 import dev.langchain4j.model.chat.response.ChatResponse
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler
+import dev.langchain4j.model.embedding.EmbeddingModel
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel
+import dev.langchain4j.model.output.Response
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -40,6 +44,11 @@ data class GlobalSearchResult(
 class GlobalSearchEngine(
     private val streamingModel: OpenAiStreamingChatModel,
     private val communityReports: List<CommunityReport>,
+    communityReportEmbeddings: List<CommunityReportEmbedding> = emptyList(),
+    private val embeddingModel: EmbeddingModel? = null,
+    private val communityHierarchy: Map<Int, Int> = emptyMap(),
+    private val communityLevel: Int? = null,
+    private val dynamicCommunitySelection: Boolean = false,
     private val callbacks: List<QueryCallbacks> = emptyList(),
     private val mapSystemPrompt: String = MAP_SYSTEM_PROMPT,
     private val reduceSystemPrompt: String = REDUCE_SYSTEM_PROMPT,
@@ -53,9 +62,14 @@ class GlobalSearchEngine(
     private val reduceParams: ModelParams = ModelParams(jsonResponse = false),
     private val encoding: Encoding = Encodings.newLazyEncodingRegistry().getEncoding(EncodingType.CL100K_BASE),
 ) {
+    private val communityEmbeddingCache =
+        mutableMapOf<Int, List<Double>>().apply {
+            communityReportEmbeddings.forEach { put(it.communityId, it.vector) }
+        }
+
     suspend fun search(question: String): GlobalSearchResult =
         coroutineScope {
-            val contextChunks = buildContextChunks()
+            val contextChunks = buildContextChunks(question)
             callbacks.forEach { it.onContext(mapOf("reports" to contextChunks.map { mutableMapOf("in_context" to "true") })) }
             callbacks.forEach { it.onMapResponseStart(contextChunks) }
 
@@ -100,10 +114,10 @@ class GlobalSearchEngine(
             )
         }
 
-    private fun buildContextChunks(): List<String> {
+    private suspend fun buildContextChunks(question: String): List<String> {
         if (communityReports.isEmpty()) return emptyList()
         val header = listOf("id", "title", "summary", "rank").joinToString("|")
-        val sorted = communityReports.sortedByDescending { it.rank ?: 0.0 }
+        val sorted = selectReports(question)
 
         val chunks = mutableListOf<String>()
         var current = StringBuilder("-----Reports-----\n$header\n")
@@ -128,6 +142,56 @@ class GlobalSearchEngine(
         if (current.isNotEmpty()) chunks += current.toString().trimEnd()
         return chunks
     }
+
+    private suspend fun selectReports(question: String): List<CommunityReport> {
+        val filtered =
+            if (communityLevel != null) {
+                communityReports.filter { levelOf(it.communityId) == communityLevel }
+            } else {
+                communityReports
+            }
+        if (!dynamicCommunitySelection || embeddingModel == null) {
+            return filtered.sortedByDescending { it.rank ?: 0.0 }
+        }
+
+        val queryEmbedding = embed(question) ?: return filtered.sortedByDescending { it.rank ?: 0.0 }
+        val scored =
+            filtered.mapNotNull { report ->
+                val reportEmbedding =
+                    communityEmbeddingCache[report.communityId]
+                        ?: embed(report.summary)?.also { vector -> communityEmbeddingCache[report.communityId] = vector }
+                val score = reportEmbedding?.let { cosineSimilarity(queryEmbedding, it) } ?: return@mapNotNull null
+                report to score
+            }
+        if (scored.isEmpty()) {
+            return filtered.sortedByDescending { it.rank ?: 0.0 }
+        }
+        return scored.sortedByDescending { it.second }.map { it.first }
+    }
+
+    private fun levelOf(communityId: Int): Int {
+        var current: Int? = communityId
+        var level = 0
+        while (current != null) {
+            val parent = communityHierarchy[current]
+            if (parent == null || parent < 0) break
+            level += 1
+            current = parent
+        }
+        return level
+    }
+
+    private suspend fun embed(text: String): List<Double>? =
+        withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                val response: Response<dev.langchain4j.data.embedding.Embedding> = embeddingModel?.embed(text) ?: return@runCatching null
+                response
+                    .content()
+                    ?.vector()
+                    ?.asList()
+                    ?.map { it.toDouble() }
+            }.getOrNull()
+        }
 
     private suspend fun mapStep(
         question: String,
@@ -239,6 +303,23 @@ class GlobalSearchEngine(
 
     private fun tokenCount(text: String): Int = encoding.countTokens(text)
 
+    private fun cosineSimilarity(
+        a: List<Double>,
+        b: List<Double>,
+    ): Double {
+        if (a.isEmpty() || b.isEmpty() || a.size != b.size) return 0.0
+        var dot = 0.0
+        var magA = 0.0
+        var magB = 0.0
+        for (i in a.indices) {
+            dot += a[i] * b[i]
+            magA += a[i] * a[i]
+            magB += b[i] * b[i]
+        }
+        val denom = kotlin.math.sqrt(magA) * kotlin.math.sqrt(magB)
+        return if (denom == 0.0) 0.0 else dot / denom
+    }
+
     private fun streamAnswer(prompt: String): String {
         val builder = StringBuilder()
         val future = CompletableFuture<String>()
@@ -264,7 +345,7 @@ class GlobalSearchEngine(
 
     fun streamSearch(question: String): Flow<String> =
         callbackFlow {
-            val contextChunks = buildContextChunks()
+            val contextChunks = buildContextChunks(question)
             callbacks.forEach { it.onContext(mapOf("reports" to contextChunks.map { mutableMapOf("in_context" to "true") })) }
             callbacks.forEach { it.onMapResponseStart(contextChunks) }
 

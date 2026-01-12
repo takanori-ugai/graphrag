@@ -86,6 +86,11 @@ class LocalQueryEngine(
                 topKCommunities = topKCommunities,
                 textUnitProp = 0.5,
                 communityProp = 0.25,
+                includeCommunityRank = true,
+                includeEntityRank = true,
+                includeRelationshipWeight = true,
+                returnCandidateContext = true,
+                contextCallbacks = callbacks.map { cb -> { res -> cb.onContext(res.contextRecords) } },
             )
         val prompt = buildPrompt(responseType, contextResult.contextText, driftQuery)
         callbacks.forEach { it.onContext(contextResult.contextRecords) }
@@ -191,6 +196,11 @@ class LocalQueryEngine(
                     topKCommunities = topKCommunities,
                     textUnitProp = 0.5,
                     communityProp = 0.25,
+                    includeCommunityRank = true,
+                    includeEntityRank = true,
+                    includeRelationshipWeight = true,
+                    returnCandidateContext = true,
+                    contextCallbacks = callbacks.map { cb -> { res -> cb.onContext(res.contextRecords) } },
                 )
             val prompt = buildPrompt(responseType, contextResult.contextText, driftQuery)
             callbacks.forEach { it.onContext(contextResult.contextRecords) }

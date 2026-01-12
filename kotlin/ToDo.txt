@@ -1,4 +1,4 @@
-  - CLI/config + data loading: Python graphrag/cli/query.py + graphrag/api/query.py load full parquet outputs through
+Done:  - CLI/config + data loading: Python graphrag/cli/query.py + graphrag/api/query.py load full parquet outputs through
     storage adapters, honor settings overrides, and support multi-index + callbacks/streaming across all modes. Kotlin
     src/main/kotlin/com/microsoft/graphrag/cli/GraphRagCli.kt only reads a single folder via QueryIndexLoader and
     ignores settings; the --streaming flag is a no-op for basic, and there’s no multi-index or callback plumbing.
@@ -14,7 +14,7 @@ Done:  - Basic search flow: Python query/structured_search/basic_search/search.p
     ordering, and returns metrics/callback events. Kotlin query/AdvancedQueryEngines.kt + LocalSearchContextBuilder.kt
     cover entities/relationships/claims/covariates but omit rank/weight scoring, candidate-context tagging, token-based
     trimming nuances, drift_query input on the CLI, and usage/callback metrics parity.
-  - Global search: Python global mode (query/structured_search/global_search/..., dynamic community selection in
+Done:  - Global search: Python global mode (query/structured_search/global_search/..., dynamic community selection in
     context_builder/dynamic_community_selection.py) uses map/reduce prompts, hierarchy levels, and optional dynamic
     selection. Kotlin query/GlobalQueryEngine just re-embeds report summaries and picks top K; no map/reduce pipeline,
     hierarchy level selection, or dynamic rating path.

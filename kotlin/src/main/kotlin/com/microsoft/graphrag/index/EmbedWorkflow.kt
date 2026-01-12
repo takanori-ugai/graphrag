@@ -44,9 +44,12 @@ class EmbedWorkflow(
     }
 }
 
-fun defaultEmbeddingModel(apiKey: String): EmbeddingModel =
+fun defaultEmbeddingModel(
+    apiKey: String,
+    modelName: String = "text-embedding-3-small",
+): EmbeddingModel =
     OpenAiEmbeddingModel
         .builder()
         .apiKey(apiKey)
-        .modelName("text-embedding-3-small")
+        .modelName(modelName)
         .build()
