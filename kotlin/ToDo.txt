@@ -2,10 +2,10 @@
     storage adapters, honor settings overrides, and support multi-index + callbacks/streaming across all modes. Kotlin
     src/main/kotlin/com/microsoft/graphrag/cli/GraphRagCli.kt only reads a single folder via QueryIndexLoader and
     ignores settings; the --streaming flag is a no-op for basic, and there’s no multi-index or callback plumbing.
-  - Index contents: Python query uses all index tables (text_units, entities, relationships, covariates, communities
+Done:  - Index contents: Python query uses all index tables (text_units, entities, relationships, covariates, communities
     hierarchy, reports, embeddings, stats). Kotlin query/QueryIndexLoader.kt only ingests context.json/
     vector_store.json; parquet/stats/multi-output support and storage abstraction are absent.
-  - Basic search flow: Python query/structured_search/basic_search/search.py uses a context builder with token
+Done:  - Basic search flow: Python query/structured_search/basic_search/search.py uses a context builder with token
     budgeting, structured context_records, streaming, and usage metrics. Kotlin query/BasicQueryEngine.kt does a simple
     nearest-chunk lookup, fixed prompt, no token budgeting beyond a rough word count, no context_records, and no usage/
     callback reporting.
