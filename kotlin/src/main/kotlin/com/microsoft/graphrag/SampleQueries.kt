@@ -6,7 +6,6 @@ import com.microsoft.graphrag.query.DriftSearchEngine
 import com.microsoft.graphrag.query.GlobalSearchEngine
 import com.microsoft.graphrag.query.LocalQueryEngine
 import com.microsoft.graphrag.query.QueryIndexLoader
-import dev.langchain4j.model.openai.OpenAiChatModel
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel
 import kotlinx.coroutines.runBlocking
 import java.nio.file.Path
@@ -20,12 +19,6 @@ import java.nio.file.Path
 fun main() =
     runBlocking {
         val apiKey = System.getenv("OPENAI_API_KEY") ?: error("Set OPENAI_API_KEY")
-        val chatModel =
-            OpenAiChatModel
-                .builder()
-                .apiKey(apiKey)
-                .modelName("gpt-4o-mini")
-                .build()
         val streamingModel =
             OpenAiStreamingChatModel
                 .builder()
@@ -44,7 +37,7 @@ fun main() =
         // Basic
         val basicResult =
             BasicQueryEngine(
-                chatModel = chatModel,
+                streamingModel = streamingModel,
                 embeddingModel = embeddingModel,
                 vectorStore = index.vectorStore,
                 textUnits = index.textUnits,

@@ -401,16 +401,26 @@ class QueryCommand : Runnable {
         val result: QueryResult =
             when (selectedMethod) {
                 "basic" -> {
-                    if (streaming) println("Streaming not supported for basic mode; returning full response.")
                     runBlocking {
-                        BasicQueryEngine(
-                            chatModel = chatModel,
-                            embeddingModel = embeddingModel,
-                            vectorStore = indexData.vectorStore,
-                            textUnits = indexData.textUnits,
-                            textEmbeddings = indexData.textEmbeddings,
-                            topK = 5,
-                        ).answer(query, responseType)
+                        val engine =
+                            BasicQueryEngine(
+                                streamingModel = streamingChatModel,
+                                embeddingModel = embeddingModel,
+                                vectorStore = indexData.vectorStore,
+                                textUnits = indexData.textUnits,
+                                textEmbeddings = indexData.textEmbeddings,
+                                topK = 5,
+                            )
+                        if (streaming) {
+                            val builder = StringBuilder()
+                            engine.streamAnswer(query, responseType).collect { partial ->
+                                print(partial)
+                                builder.append(partial)
+                            }
+                            QueryResult(answer = builder.toString(), context = emptyList())
+                        } else {
+                            engine.answer(query, responseType)
+                        }
                     }
                 }
 

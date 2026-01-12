@@ -1,18 +1,19 @@
 package com.microsoft.graphrag.query
 
+import com.knuddels.jtokkit.Encodings
+import com.knuddels.jtokkit.api.Encoding
+import com.knuddels.jtokkit.api.EncodingType
 import com.microsoft.graphrag.index.LocalVectorStore
 import com.microsoft.graphrag.index.TextEmbedding
 import com.microsoft.graphrag.index.TextUnit
+import dev.langchain4j.model.chat.response.ChatResponse
+import dev.langchain4j.model.chat.response.StreamingChatResponseHandler
 import dev.langchain4j.model.embedding.EmbeddingModel
-import dev.langchain4j.model.openai.OpenAiChatModel
-import dev.langchain4j.model.output.Response
-import dev.langchain4j.service.AiServices
-import dev.langchain4j.service.SystemMessage
-import dev.langchain4j.service.UserMessage
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import java.util.Locale
-import kotlin.math.sqrt
+import dev.langchain4j.model.openai.OpenAiStreamingChatModel
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import java.util.concurrent.CompletableFuture
 
 data class QueryContextChunk(
     val id: String,
@@ -36,139 +37,152 @@ data class QueryResult(
 )
 
 /**
- * Minimal query engine that mirrors the Python basic search flow: embed the question,
- * retrieve the closest text units by vector similarity, build a CSV context table with
- * a token budget, and ask the chat model to answer using the basic search system prompt.
+ * Basic search engine that mirrors the Python basic search flow: embed the question, build a token-budgeted CSV context
+ * table, and ask the chat model while reporting usage and callback events.
  */
 @Suppress("LongParameterList")
 class BasicQueryEngine(
-    private val chatModel: OpenAiChatModel,
-    private val embeddingModel: EmbeddingModel,
-    private val vectorStore: LocalVectorStore,
-    private val textUnits: List<TextUnit>,
-    private val textEmbeddings: List<TextEmbedding>,
+    private val streamingModel: OpenAiStreamingChatModel,
+    embeddingModel: EmbeddingModel,
+    vectorStore: LocalVectorStore,
+    textUnits: List<TextUnit>,
+    textEmbeddings: List<TextEmbedding>,
     private val topK: Int = 10,
     private val maxContextTokens: Int = 12_000,
     private val columnDelimiter: String = "|",
+    private val callbacks: List<QueryCallbacks> = emptyList(),
+    private val systemPrompt: String = BASIC_SEARCH_SYSTEM_PROMPT,
+    private val encoding: Encoding = Encodings.newLazyEncodingRegistry().getEncoding(EncodingType.CL100K_BASE),
 ) {
     suspend fun answer(
         question: String,
         responseType: String,
     ): QueryResult {
-        val queryEmbedding = embed(question) ?: return QueryResult("Failed to embed query text.", emptyList())
-        val contextRows = buildContext(queryEmbedding)
-        val prompt = buildPrompt(responseType, contextRows)
-        val answer = generate(prompt, question)
-        return QueryResult(answer = answer, context = contextRows)
+        val contextResult =
+            contextBuilder.buildContext(
+                query = question,
+                k = topK,
+                maxContextTokens = maxContextTokens,
+            )
+        callbacks.forEach { it.onContext(contextResult.contextRecords) }
+        val prompt = buildPrompt(responseType, contextResult.contextText)
+        val promptTokens = encoding.countTokens(prompt)
+        val fullPrompt = "$prompt\n\nUser question: $question"
+        val answerText = generate(fullPrompt)
+        val outputTokens = encoding.countTokens(answerText)
+
+        val llmCallsCategories =
+            mapOf(
+                "build_context" to contextResult.llmCalls,
+                "response" to 1,
+            )
+        val promptTokensCategories =
+            mapOf(
+                "build_context" to contextResult.promptTokens,
+                "response" to promptTokens,
+            )
+        val outputTokensCategories =
+            mapOf(
+                "build_context" to contextResult.outputTokens,
+                "response" to outputTokens,
+            )
+
+        return QueryResult(
+            answer = answerText,
+            context = contextResult.contextChunks,
+            contextRecords = contextResult.contextRecords,
+            contextText = contextResult.contextText,
+            llmCalls = llmCallsCategories.values.sum(),
+            promptTokens = promptTokensCategories.values.sum(),
+            outputTokens = outputTokensCategories.values.sum(),
+            llmCallsCategories = llmCallsCategories,
+            promptTokensCategories = promptTokensCategories,
+            outputTokensCategories = outputTokensCategories,
+        )
     }
 
-    private suspend fun embed(text: String): List<Double>? =
-        withContext(Dispatchers.IO) {
-            runCatching {
-                val response: Response<dev.langchain4j.data.embedding.Embedding> = embeddingModel.embed(text)
-                response
-                    .content()
-                    .vector()
-                    .asList()
-                    .map { it.toDouble() }
-            }.getOrNull()
+    fun streamAnswer(
+        question: String,
+        responseType: String,
+    ): Flow<String> =
+        callbackFlow {
+            val contextResult =
+                contextBuilder.buildContext(
+                    query = question,
+                    k = topK,
+                    maxContextTokens = maxContextTokens,
+                )
+            callbacks.forEach { it.onContext(contextResult.contextRecords) }
+            val prompt = buildPrompt(responseType, contextResult.contextText)
+            val finalPrompt = "$prompt\n\nUser question: $question"
+            streamingModel.chat(
+                finalPrompt,
+                object : StreamingChatResponseHandler {
+                    override fun onPartialResponse(partialResponse: String) {
+                        callbacks.forEach { it.onLLMNewToken(partialResponse) }
+                        trySend(partialResponse)
+                    }
+
+                    override fun onCompleteResponse(response: ChatResponse) {
+                        close()
+                    }
+
+                    override fun onError(error: Throwable) {
+                        close(error)
+                    }
+                },
+            )
+            awaitClose {}
         }
 
-    private fun buildContext(queryEmbedding: List<Double>): List<QueryContextChunk> {
-        // Prefer the persisted vector store for retrieval, otherwise fall back to in-memory embeddings.
-        val nearest =
-            vectorStore
-                .nearestTextChunks(queryEmbedding, topK)
-                .mapNotNull { (chunkId, distance) ->
-                    textUnits.find { it.chunkId == chunkId }?.let { QueryContextChunk(it.id, it.text, distance) }
-                }
-
-        if (nearest.isNotEmpty()) return nearest
-
-        // Fallback: compute cosine similarity against embeddings stored in context.json.
-        val byChunkId = textUnits.associateBy { it.chunkId }
-        val scored =
-            textEmbeddings
-                .mapNotNull { embedding ->
-                    val textUnit = byChunkId[embedding.chunkId] ?: return@mapNotNull null
-                    val score = cosineSimilarity(queryEmbedding, embedding.vector)
-                    QueryContextChunk(textUnit.id, textUnit.text, score)
-                }.sortedByDescending { it.score }
-                .take(topK)
-
-        val headerTokens = tokenCount("source_id${columnDelimiter}text\n")
-        var tokens = headerTokens
-        val rows = mutableListOf<QueryContextChunk>()
-        for (chunk in scored) {
-            val rowText = "${chunk.id}$columnDelimiter${chunk.text}\n"
-            val rowTokens = tokenCount(rowText)
-            if (tokens + rowTokens > maxContextTokens) {
-                break
-            }
-            tokens += rowTokens
-            rows.add(chunk)
-        }
-        return rows
-    }
+    suspend fun buildContext(question: String): List<QueryContextChunk> =
+        contextBuilder
+            .buildContext(
+                query = question,
+                k = topK,
+                maxContextTokens = maxContextTokens,
+            ).contextChunks
 
     private fun buildPrompt(
         responseType: String,
-        context: List<QueryContextChunk>,
-    ): String {
-        val header = "source_id$columnDelimiter${"text"}"
-        val rows =
-            context.joinToString("\n") { chunk ->
-                "${chunk.id}$columnDelimiter${chunk.text}"
-            }
-        val contextBlock = "$header\n$rows"
-        val systemPrompt =
-            BASIC_SEARCH_SYSTEM_PROMPT
-                .replace("{context_data}", contextBlock)
-                .replace("{response_type}", responseType)
-        return systemPrompt
-    }
-
-    private suspend fun generate(
-        systemPrompt: String,
-        question: String,
+        context: String,
     ): String =
-        withContext(Dispatchers.IO) {
-            val finalPrompt = "$systemPrompt\n\nUser question: $question"
-            runCatching { responder.answer(finalPrompt) }.getOrNull() ?: "No response generated."
-        }
+        systemPrompt
+            .replace("{context_data}", context)
+            .replace("{response_type}", responseType)
 
-    private fun cosineSimilarity(
-        a: List<Double>,
-        b: List<Double>,
-    ): Double {
-        if (a.isEmpty() || b.isEmpty() || a.size != b.size) return 0.0
-        var dot = 0.0
-        var magA = 0.0
-        var magB = 0.0
-        for (i in a.indices) {
-            dot += a[i] * b[i]
-            magA += a[i] * a[i]
-            magB += b[i] * b[i]
-        }
-        val denom = sqrt(magA) * sqrt(magB)
-        return if (denom == 0.0) 0.0 else dot / denom
+    private suspend fun generate(prompt: String): String {
+        val builder = StringBuilder()
+        val future = CompletableFuture<String>()
+        streamingModel.chat(
+            prompt,
+            object : StreamingChatResponseHandler {
+                override fun onPartialResponse(partialResponse: String) {
+                    builder.append(partialResponse)
+                    callbacks.forEach { it.onLLMNewToken(partialResponse) }
+                }
+
+                override fun onCompleteResponse(response: ChatResponse) {
+                    future.complete(builder.toString())
+                }
+
+                override fun onError(error: Throwable) {
+                    future.completeExceptionally(error)
+                }
+            },
+        )
+        return runCatching { future.get() }.getOrElse { "No response generated." }
     }
 
-    private fun tokenCount(text: String): Int =
-        text
-            .lowercase(Locale.US)
-            .split(Regex("\\s+"))
-            .count { it.isNotBlank() }
-
-    private val responder: QueryResponder =
-        AiServices.create(QueryResponder::class.java, chatModel)
-}
-
-private interface QueryResponder {
-    @SystemMessage("You are a helpful assistant. Answer the question using only the provided context.")
-    fun answer(
-        @UserMessage prompt: String,
-    ): String
+    private val contextBuilder =
+        BasicSearchContextBuilder(
+            embeddingModel = embeddingModel,
+            vectorStore = vectorStore,
+            textUnits = textUnits,
+            textEmbeddings = textEmbeddings,
+            columnDelimiter = columnDelimiter,
+            encoding = encoding,
+        )
 }
 
 private val BASIC_SEARCH_SYSTEM_PROMPT =
