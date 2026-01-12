@@ -12,11 +12,14 @@ import com.microsoft.graphrag.query.LocalSearchContextBuilder.ConversationTurn
 import dev.langchain4j.model.chat.response.ChatResponse
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import java.util.concurrent.CompletableFuture
 
 data class QuestionResult(
     val response: List<String>,
-    val contextData: Any,
+    val contextData: Map<String, List<MutableMap<String, String>>>,
     val completionTime: Double,
     val llmCalls: Int,
     val promptTokens: Int,
@@ -25,6 +28,7 @@ data class QuestionResult(
 class LocalQuestionGen(
     private val model: OpenAiStreamingChatModel,
     private val contextBuilder: LocalSearchContextBuilder,
+    private val callbacks: List<QueryCallbacks> = emptyList(),
     private val encoding: Encoding = Encodings.newLazyEncodingRegistry().getEncoding(EncodingType.CL100K_BASE),
 ) {
     @Suppress("LongParameterList")
@@ -40,24 +44,23 @@ class LocalQuestionGen(
         topKRelationships: Int = 10,
         topKClaims: Int = 10,
         topKCommunities: Int = 5,
+        includeCommunityRank: Boolean = false,
+        includeEntityRank: Boolean = false,
+        includeRelationshipWeight: Boolean = false,
     ): QuestionResult {
         val startTime = System.currentTimeMillis()
 
         val (questionText, conversationHistory) =
-
             if (questionHistory.isEmpty()) {
                 Pair("", null)
             } else {
                 val history = questionHistory.dropLast(1).map { ConversationTurn(ConversationTurn.Role.USER, it) }
-
                 Pair(questionHistory.last(), ConversationHistory(history))
             }
 
         val (finalContextData, contextRecords) =
-
             if (contextData == null) {
                 val result =
-
                     contextBuilder.buildContext(
                         query = questionText,
                         conversationHistory = conversationHistory,
@@ -69,11 +72,18 @@ class LocalQuestionGen(
                         topKRelationships = topKRelationships,
                         topKClaims = topKClaims,
                         topKCommunities = topKCommunities,
+                        includeCommunityRank = includeCommunityRank,
+                        includeEntityRank = includeEntityRank,
+                        includeRelationshipWeight = includeRelationshipWeight,
+                        returnCandidateContext = true,
+                        contextCallbacks = callbacks.map { cb -> { res -> cb.onContext(res.contextRecords) } },
                     )
 
                 Pair(result.contextText, result.contextRecords)
             } else {
-                Pair(contextData, mapOf("context_data" to contextData))
+                val records = mutableMapOf<String, MutableList<MutableMap<String, String>>>()
+                records["context_data"] = mutableListOf(mutableMapOf("text" to contextData, "in_context" to "true"))
+                Pair(contextData, records)
             }
 
         val systemPrompt =
@@ -81,20 +91,61 @@ class LocalQuestionGen(
                 .replace("{context_data}", finalContextData)
                 .replace("{question_count}", questionCount.toString())
 
-        val questionMessages = "$systemPrompt\n\nUser question: $questionText"
-
-        val response = streamingChat(questionMessages)
+        val response = streamingChat("$systemPrompt\n\nUser question: $questionText")
 
         val completionTime = (System.currentTimeMillis() - startTime) / 1000.0
 
         return QuestionResult(
             response = response.split("\n").map { it.removePrefix("- ").trim() }.filter { it.isNotBlank() },
-            contextData = mapOf("question_context" to questionText) + contextRecords,
+            contextData =
+                contextRecords +
+                    mapOf("question_context" to mutableListOf(mutableMapOf("text" to questionText, "in_context" to "true"))),
             completionTime = completionTime,
             llmCalls = 1,
             promptTokens = encoding.countTokens(systemPrompt),
         )
     }
+
+    @Suppress("LongParameterList")
+    fun streamGenerate(
+        questionHistory: List<String>,
+        contextData: String?,
+        questionCount: Int,
+        conversationHistoryMaxTurns: Int = 5,
+        maxContextTokens: Int = 8000,
+        textUnitProp: Double = 0.5,
+        communityProp: Double = 0.25,
+        topKMappedEntities: Int = 10,
+        topKRelationships: Int = 10,
+        topKClaims: Int = 10,
+        topKCommunities: Int = 5,
+        includeCommunityRank: Boolean = false,
+        includeEntityRank: Boolean = false,
+        includeRelationshipWeight: Boolean = false,
+    ): Flow<String> =
+        callbackFlow {
+            val result =
+                generate(
+                    questionHistory = questionHistory,
+                    contextData = contextData,
+                    questionCount = questionCount,
+                    conversationHistoryMaxTurns = conversationHistoryMaxTurns,
+                    maxContextTokens = maxContextTokens,
+                    textUnitProp = textUnitProp,
+                    communityProp = communityProp,
+                    topKMappedEntities = topKMappedEntities,
+                    topKRelationships = topKRelationships,
+                    topKClaims = topKClaims,
+                    topKCommunities = topKCommunities,
+                    includeCommunityRank = includeCommunityRank,
+                    includeEntityRank = includeEntityRank,
+                    includeRelationshipWeight = includeRelationshipWeight,
+                )
+            callbacks.forEach { it.onContext(result.contextData) }
+            result.response.forEach { trySend(it) }
+            close()
+            awaitClose {}
+        }
 
     private suspend fun streamingChat(prompt: String): String {
         val future = CompletableFuture<String>()
@@ -106,6 +157,7 @@ class LocalQuestionGen(
             object : StreamingChatResponseHandler {
                 override fun onPartialResponse(partialResponse: String) {
                     responseBuilder.append(partialResponse)
+                    callbacks.forEach { it.onLLMNewToken(partialResponse) }
                 }
 
                 override fun onCompleteResponse(response: ChatResponse) {
