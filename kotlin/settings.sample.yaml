@@ -1,0 +1,47 @@
+# Sample settings.yaml with default-style values for GraphRAG
+root_dir: .
+
+models:
+  default_chat_model:
+    api_key: ${OPENAI_API_KEY}
+    type: chat
+    model_provider: openai
+    model: gpt-4o-mini
+  default_embedding_model:
+    api_key: ${OPENAI_API_KEY}
+    type: embedding
+    model_provider: openai
+    model: text-embedding-3-small
+
+input:
+  file_type: text
+  file_pattern: ".*\\.txt$"
+  storage:
+    type: file
+    base_dir: input
+
+output:
+  type: file
+  base_dir: output
+
+outputs: {}
+
+vector_store:
+  default:
+    type: file
+    base_dir: output
+
+basic_search:
+  prompt: prompts/query/basic_search_system_prompt.txt
+
+local_search:
+  prompt: prompts/query/local_search_system_prompt.txt
+
+global_search:
+  map_prompt: prompts/query/global_search_map_system_prompt.txt
+  reduce_prompt: prompts/query/global_search_reduce_system_prompt.txt
+  knowledge_prompt: prompts/query/global_search_general_knowledge_prompt.txt
+
+drift_search:
+  prompt: prompts/query/drift_search_system_prompt.txt
+  reduce_prompt: prompts/query/drift_search_reduce_system_prompt.txt
