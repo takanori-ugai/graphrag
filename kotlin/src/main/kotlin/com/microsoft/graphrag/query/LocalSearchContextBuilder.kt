@@ -146,7 +146,7 @@ class LocalSearchContextBuilder(
         }
 
         // community context
-        val communityTokens = (remainingTokens * communityProp).toInt()
+        val communityTokens = (remainingTokens * communityProp).toInt().coerceAtLeast(0)
         val (communitySection, communitySectionTokens) =
             buildCommunitySection(
                 selectedEntities,
@@ -165,7 +165,8 @@ class LocalSearchContextBuilder(
 
         // local context (entities/relationships/claims)
         val localProp = 1.0 - communityProp - textUnitProp
-        val localTokens = (maxContextTokens * localProp).toInt()
+        val localTokens =
+            minOf(remainingTokens, (maxContextTokens * localProp).toInt()).coerceAtLeast(0)
         val (entitySection, entityTokens) =
             buildEntitySection(
                 selectedEntities = selectedEntities,
@@ -233,7 +234,10 @@ class LocalSearchContextBuilder(
         }
 
         // sources
-        val textUnitTokens = remainingTokens.coerceAtMost((maxContextTokens * textUnitProp).toInt())
+        val textUnitTokens =
+            remainingTokens
+                .coerceAtLeast(0)
+                .coerceAtMost((maxContextTokens * textUnitProp).toInt())
         val sourceResult = buildSourceSection(selectedEntities, textUnitTokens, returnCandidateContext, contextRecords)
         if (sourceResult.section.isNotBlank()) {
             sections += sourceResult.section
@@ -407,9 +411,73 @@ class LocalSearchContextBuilder(
         contextRecords: MutableMap<String, MutableList<MutableMap<String, String>>>,
         selectedIdentifiers: Set<String>,
     ): Pair<String, Int> {
-        if (selectedEntities.isEmpty() || relationships.isEmpty()) return "" to 0
+        if (selectedEntities.isEmpty() || relationships.isEmpty()) {
+            if (returnCandidateContext) {
+                val candidates = sortedRelationshipsForCandidates(selectedEntities, relationshipRankingAttribute)
+                val headers = mutableListOf("id", "source", "target", "type", "description")
+                if (includeRelationshipWeight) headers += "weight"
+                val attributeKeys =
+                    candidates
+                        .firstOrNull()
+                        ?.attributes
+                        ?.keys
+                        ?.filterNot { key -> headers.contains(key) || key.equals("weight", ignoreCase = true) }
+                        ?: emptyList()
+                headers.addAll(attributeKeys)
+                val candidateRecords =
+                    candidates.map { rel ->
+                        val rowParts =
+                            mutableListOf(
+                                rel.shortId ?: rel.id.orEmpty(),
+                                rel.sourceId,
+                                rel.targetId,
+                                rel.type,
+                                rel.description ?: "",
+                            )
+                        if (includeRelationshipWeight) rowParts += (rel.weight?.toString() ?: "")
+                        attributeKeys.forEach { key -> rowParts += (rel.attributes[key] ?: "") }
+                        val record = headers.zip(rowParts).toMap().toMutableMap()
+                        record["in_context"] = "false"
+                        record
+                    }
+                contextRecords["relationships"] = candidateRecords.toMutableList()
+            }
+            return "" to 0
+        }
         val filtered = filterRelationships(selectedIdentifiers, topK, relationshipRankingAttribute)
-        if (filtered.isEmpty()) return "" to 0
+        if (filtered.isEmpty()) {
+            if (returnCandidateContext) {
+                val candidates = sortedRelationshipsForCandidates(selectedEntities, relationshipRankingAttribute)
+                val headers = mutableListOf("id", "source", "target", "type", "description")
+                if (includeRelationshipWeight) headers += "weight"
+                val attributeKeys =
+                    candidates
+                        .firstOrNull()
+                        ?.attributes
+                        ?.keys
+                        ?.filterNot { key -> headers.contains(key) || key.equals("weight", ignoreCase = true) }
+                        ?: emptyList()
+                headers.addAll(attributeKeys)
+                val candidateRecords =
+                    candidates.map { rel ->
+                        val rowParts =
+                            mutableListOf(
+                                rel.shortId ?: rel.id.orEmpty(),
+                                rel.sourceId,
+                                rel.targetId,
+                                rel.type,
+                                rel.description ?: "",
+                            )
+                        if (includeRelationshipWeight) rowParts += (rel.weight?.toString() ?: "")
+                        attributeKeys.forEach { key -> rowParts += (rel.attributes[key] ?: "") }
+                        val record = headers.zip(rowParts).toMap().toMutableMap()
+                        record["in_context"] = "false"
+                        record
+                    }
+                contextRecords["relationships"] = candidateRecords.toMutableList()
+            }
+            return "" to 0
+        }
 
         val headers = mutableListOf("id", "source", "target", "type", "description")
         if (includeRelationshipWeight) headers += "weight"
@@ -426,6 +494,37 @@ class LocalSearchContextBuilder(
         var tokens = tokenCount(builder.toString())
         val includedIds = mutableSetOf<String>()
         val records = mutableListOf<MutableMap<String, String>>()
+        val candidateRelationships =
+            if (returnCandidateContext) {
+                sortedRelationshipsForCandidates(
+                    selectedEntities = selectedEntities,
+                    rankingAttribute = relationshipRankingAttribute,
+                )
+            } else {
+                emptyList()
+            }
+        if (tokenBudget <= tokens) {
+            if (returnCandidateContext) {
+                val candidateRecords =
+                    candidateRelationships.map { rel ->
+                        val rowParts =
+                            mutableListOf(
+                                rel.shortId ?: rel.id.orEmpty(),
+                                rel.sourceId,
+                                rel.targetId,
+                                rel.type,
+                                rel.description ?: "",
+                            )
+                        if (includeRelationshipWeight) rowParts += (rel.weight?.toString() ?: "")
+                        attributeKeys.forEach { key -> rowParts += (rel.attributes[key] ?: "") }
+                        val record = headers.zip(rowParts).toMap().toMutableMap()
+                        record["in_context"] = "false"
+                        record
+                    }
+                contextRecords["relationships"] = candidateRecords.toMutableList()
+            }
+            return "" to 0
+        }
 
         for (rel in filtered) {
             val rowParts =
@@ -451,11 +550,6 @@ class LocalSearchContextBuilder(
         val text = builder.toString().trimEnd()
         if (records.isNotEmpty()) contextRecords["relationships"] = records.toMutableList()
         if (returnCandidateContext) {
-            val candidateRelationships =
-                sortedRelationshipsForCandidates(
-                    selectedEntities = selectedEntities,
-                    rankingAttribute = relationshipRankingAttribute,
-                )
             val candidateRecords =
                 candidateRelationships.map { rel ->
                     val rowParts =

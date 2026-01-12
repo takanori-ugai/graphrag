@@ -10,7 +10,6 @@ import dev.langchain4j.model.openai.OpenAiStreamingChatModel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -29,6 +28,127 @@ data class DriftSearchResult(
     val llmCallsCategories: Map<String, Int>,
     val promptTokensCategories: Map<String, Int>,
     val outputTokensCategories: Map<String, Int>,
+    val contextRecords: Map<String, List<MutableMap<String, String>>> = emptyMap(),
+    val contextText: String = "",
+)
+
+private data class DriftNode(
+    val id: Int,
+    val query: String,
+    val parentId: Int?,
+    val type: NodeType,
+    var result: QueryResult? = null,
+) {
+    enum class NodeType {
+        PRIMER,
+        FOLLOW_UP,
+        PROVIDED,
+    }
+}
+
+private class DriftSearchState {
+    private val nodes = mutableListOf<DriftNode>()
+    private val pending = ArrayDeque<Int>()
+    private val seenQueries = mutableSetOf<String>()
+    private var nextId = 0
+
+    fun addPrimer(
+        query: String,
+        primerResult: QueryResult,
+        followUps: List<String>,
+    ) {
+        val node = DriftNode(nextId++, query, null, DriftNode.NodeType.PRIMER, primerResult)
+        nodes += node
+        seenQueries += query.lowercase()
+        enqueueFollowUps(node.id, followUps.ifEmpty { primerResult.followUpQueries.ifEmpty { listOf(query) } })
+    }
+
+    fun enqueueFollowUps(
+        parentId: Int?,
+        followUps: List<String>,
+    ) {
+        followUps
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .forEach { followUp ->
+                val key = followUp.lowercase()
+                if (seenQueries.add(key)) {
+                    val node = DriftNode(nextId++, followUp, parentId, DriftNode.NodeType.FOLLOW_UP)
+                    nodes += node
+                    pending.add(node.id)
+                }
+            }
+    }
+
+    fun hasPending(): Boolean = pending.any { id -> findNode(id)?.result == null }
+
+    fun nextActions(limit: Int): List<DriftNode> {
+        val actions = mutableListOf<DriftNode>()
+        while (pending.isNotEmpty() && actions.size < limit) {
+            val nextId = pending.removeFirst()
+            val node = findNode(nextId) ?: continue
+            if (node.result == null) actions += node
+        }
+        return actions
+    }
+
+    fun markResult(
+        node: DriftNode,
+        result: QueryResult,
+    ) {
+        node.result = result
+        enqueueFollowUps(node.id, result.followUpQueries)
+    }
+
+    fun completedResults(): List<QueryResult> = nodes.mapNotNull { it.result }
+
+    fun contextText(): String {
+        val ordered = nodes.filter { it.result != null }.sortedBy { it.id }
+        return ordered.joinToString("\n\n") { node ->
+            buildString {
+                val label =
+                    when (node.type) {
+                        DriftNode.NodeType.PRIMER -> "Primer"
+                        DriftNode.NodeType.PROVIDED -> "Provided Follow-up"
+                        DriftNode.NodeType.FOLLOW_UP -> "Follow-up"
+                    }
+                append("----$label (id=${node.id})----\n")
+                append("Query: ${node.query}\n")
+                node.result?.score?.let { append("Score: $it\n") }
+                append(node.result?.answer ?: "")
+            }
+        }
+    }
+
+    fun contextRecords(): Map<String, List<MutableMap<String, String>>> {
+        val actionRecords =
+            nodes.map { node ->
+                mutableMapOf(
+                    "id" to node.id.toString(),
+                    "parent_id" to (node.parentId?.toString() ?: ""),
+                    "query" to node.query,
+                    "type" to node.type.name.lowercase(),
+                    "score" to (node.result?.score?.toString() ?: ""),
+                    "in_context" to if (node.result != null) "true" else "false",
+                ).apply {
+                    node.result?.answer?.let { this["answer"] = it }
+                }
+            }
+        return mapOf("actions" to actionRecords.toMutableList())
+    }
+
+    private fun findNode(id: Int): DriftNode? = nodes.firstOrNull { it.id == id }
+}
+
+private data class PlannerResult(
+    val state: DriftSearchState,
+    val primerResult: QueryResult,
+    val localResults: List<QueryResult>,
+    val contextText: String,
+    val contextRecords: Map<String, List<MutableMap<String, String>>>,
+    val llmCalls: Int,
+    val promptTokens: Int,
+    val outputTokens: Int,
 )
 
 /**
@@ -57,60 +177,121 @@ class DriftSearchEngine(
         question: String,
         followUpQueries: List<String> = emptyList(),
     ): DriftSearchResult {
+        val planner = runPlanner(question, followUpQueries)
+        callbacks.forEach { it.onContext(planner.contextRecords) }
+
+        val reduceResult = reduce(question, planner.contextText)
+
+        val primerCalls = planner.primerResult.llmCalls
+        val primerPromptTokens = planner.primerResult.promptTokens
+        val primerOutputTokens = planner.primerResult.outputTokens
+
+        val localCalls = planner.localResults.sumOf { it.llmCalls }
+        val localPromptTokens = planner.localResults.sumOf { it.promptTokens }
+        val localOutputTokens = planner.localResults.sumOf { it.outputTokens }
+
+        val llmCallsCategories =
+            mapOf(
+                "primer" to primerCalls,
+                "local" to localCalls,
+                "reduce" to reduceResult.llmCalls,
+            )
+        val promptTokensCategories =
+            mapOf(
+                "primer" to primerPromptTokens,
+                "local" to localPromptTokens,
+                "reduce" to reduceResult.promptTokens,
+            )
+        val outputTokensCategories =
+            mapOf(
+                "primer" to primerOutputTokens,
+                "local" to localOutputTokens,
+                "reduce" to reduceResult.outputTokens,
+            )
+
+        val totalLlmCalls = llmCallsCategories.values.sum()
+        val totalPromptTokens = promptTokensCategories.values.sum()
+        val totalOutputTokens = outputTokensCategories.values.sum()
+
+        val allActions = planner.state.completedResults()
+        val finalAnswer = reduceResult.answer.ifBlank { allActions.lastOrNull()?.answer ?: "" }
+
+        return DriftSearchResult(
+            answer = finalAnswer,
+            actions = allActions,
+            llmCalls = totalLlmCalls,
+            promptTokens = totalPromptTokens,
+            outputTokens = totalOutputTokens,
+            llmCallsCategories = llmCallsCategories,
+            promptTokensCategories = promptTokensCategories,
+            outputTokensCategories = outputTokensCategories,
+            contextRecords = planner.contextRecords,
+            contextText = planner.contextText,
+        )
+    }
+
+    private suspend fun runPlanner(
+        question: String,
+        followUpQueries: List<String>,
+    ): PlannerResult {
         var totalLlmCalls = 0
         var totalPromptTokens = 0
         var totalOutputTokens = 0
 
-        val actions = mutableListOf<QueryResult>()
-
-        // Primer: run DRIFT primer over community reports (fall back to global search if needed)
         val primer =
             runCatching { primerSearch(question) }
                 .getOrElse { buildPrimerFallback(question) }
         totalLlmCalls += primer.llmCalls
         totalPromptTokens += primer.promptTokens
         totalOutputTokens += primer.outputTokens
-        actions += primer
 
-        // Initialize DRIFT action state
-        val state =
-            DriftQueryState().apply {
-                addActions(if (followUpQueries.isNotEmpty()) followUpQueries else primer.followUpQueries.ifEmpty { listOf(question) })
-            }
+        val state = DriftSearchState()
+        state.addPrimer(question, primer, followUpQueries)
+
+        val localResults = mutableListOf<QueryResult>()
         var iteration = 0
-        while (iteration < maxIterations && state.hasPendingActions()) {
-            val nextAction = state.nextPendingAction() ?: break
-            val local = localQueryEngine.answer(nextAction.followUpQuery, responseType = responseType)
-            totalLlmCalls += local.llmCalls
-            totalPromptTokens += local.promptTokens
-            totalOutputTokens += local.outputTokens
-            nextAction.result = local
-            state.completedActions.add(nextAction)
-            state.addActions(local.followUpQueries)
-            iteration++
+        while (state.hasPending() && iteration < maxIterations) {
+            val batch = state.nextActions(maxIterations - iteration)
+            if (batch.isEmpty()) break
+            for (node in batch) {
+                val local =
+                    localQueryEngine.answer(
+                        question = node.query,
+                        responseType = responseType,
+                        driftQuery = question,
+                    )
+                state.markResult(node, local)
+                localResults += local
+                totalLlmCalls += local.llmCalls
+                totalPromptTokens += local.promptTokens
+                totalOutputTokens += local.outputTokens
+                iteration++
+                if (iteration >= maxIterations) break
+            }
         }
-        actions.addAll(state.completedActions.mapNotNull { it.result })
 
-        val categories =
-            mapOf(
-                "primer" to actions.firstOrNull()?.llmCalls.orZero(),
-                "local" to actions.drop(1).sumOf { it.llmCalls },
-                "reduce" to 1,
-            )
-        val reduceResult = reduce(question, actions)
-        totalLlmCalls += reduceResult.llmCalls
-        totalPromptTokens += reduceResult.promptTokens
-        totalOutputTokens += reduceResult.outputTokens
+        val contextText = state.contextText()
+        val mergedRecords = mutableMapOf<String, MutableList<MutableMap<String, String>>>()
 
-        return DriftSearchResult(
-            answer = reduceResult.answer.ifBlank { actions.lastOrNull()?.answer ?: "" },
-            actions = actions,
+        fun mergeRecords(source: Map<String, List<MutableMap<String, String>>>) {
+            source.forEach { (key, records) ->
+                val dest = mergedRecords.getOrPut(key) { mutableListOf() }
+                dest += records.map { it.toMutableMap() }
+            }
+        }
+        mergeRecords(state.contextRecords())
+        mergeRecords(primer.contextRecords)
+        localResults.forEach { mergeRecords(it.contextRecords) }
+        val contextRecords = mergedRecords
+        return PlannerResult(
+            state = state,
+            primerResult = primer,
+            localResults = localResults,
+            contextText = contextText,
+            contextRecords = contextRecords,
             llmCalls = totalLlmCalls,
             promptTokens = totalPromptTokens,
             outputTokens = totalOutputTokens,
-            llmCallsCategories = categories,
-            promptTokensCategories = mapOf("primer" to totalPromptTokens, "local" to 0, "reduce" to reduceResult.promptTokens),
-            outputTokensCategories = mapOf("primer" to totalOutputTokens, "local" to 0, "reduce" to reduceResult.outputTokens),
         )
     }
 
@@ -119,39 +300,21 @@ class DriftSearchEngine(
         followUpQueries: List<String> = emptyList(),
     ): Flow<String> =
         callbackFlow {
-            val primer =
-                runBlocking { runCatching { primerSearch(question) }.getOrElse { buildPrimerFallback(question) } }
-            trySend(primer.answer)
+            val planner = runBlocking { runPlanner(question, followUpQueries) }
+            callbacks.forEach { it.onContext(planner.contextRecords) }
 
-            val followUps =
-                if (followUpQueries.isNotEmpty()) {
-                    followUpQueries
-                } else {
-                    primer.followUpQueries.takeIf { it.isNotEmpty() } ?: listOf(question)
-                }
-
-            runBlocking {
-                followUps.forEach { followUp ->
-                    localQueryEngine
-                        .streamAnswer(followUp, responseType = "multiple paragraphs")
-                        .collect { partial -> trySend(partial) }
-                }
+            planner.state.completedResults().forEach { res ->
+                if (res.answer.isNotBlank()) trySend(res.answer)
             }
-            // Stream reduce
-            val contextText =
-                (listOf(primer) + runBlocking { followUps.map { localQueryEngine.answer(it, responseType = "multiple paragraphs") } })
-                    .mapIndexed { idx, res ->
-                        val label = if (idx == 0) "Primer" else "Follow-up $idx"
-                        buildString {
-                            append("----$label----\n")
-                            res.score?.let { append("Score: $it\n") }
-                            append(res.answer)
-                        }
-                    }.joinToString("\n\n")
+
+            val contextText = planner.contextText
             val prompt =
                 reduceSystemPrompt
                     .replace("{context_data}", contextText)
                     .replace("{response_type}", responseType)
+                    .let { base ->
+                        if (reduceParams.jsonResponse) "$base\nReturn ONLY valid JSON per the schema above." else base
+                    }
             val fullPrompt = "$prompt\n\nUser question: $question"
             callbacks.forEach { it.onReduceResponseStart(contextText) }
             val reduceBuilder = StringBuilder()
@@ -177,22 +340,10 @@ class DriftSearchEngine(
             awaitClose {}
         }
 
-    private fun Int?.orZero(): Int = this ?: 0
-
     private fun reduce(
         question: String,
-        actions: List<QueryResult>,
+        contextText: String,
     ): QueryResult {
-        val contextText =
-            actions
-                .mapIndexed { idx, res ->
-                    val label = if (idx == 0) "Primer" else "Follow-up $idx"
-                    buildString {
-                        append("----$label----\n")
-                        res.score?.let { append("Score: $it\n") }
-                        append(res.answer)
-                    }
-                }.joinToString("\n\n")
         val prompt =
             reduceSystemPrompt
                 .replace("{context_data}", contextText)
@@ -243,7 +394,7 @@ class DriftSearchEngine(
         val prompt =
             primerSystemPrompt
                 .replace("{query}", question)
-                .replace("{community_reports}", context)
+                .replace("{community_reports}", context.text)
                 .let { base ->
                     if (primerParams.jsonResponse) "$base\nReturn ONLY valid JSON per the schema above." else base
                 }
@@ -272,7 +423,8 @@ class DriftSearchEngine(
         return QueryResult(
             answer = parsed.answer,
             context = emptyList(),
-            contextRecords = mapOf("reports" to emptyList()),
+            contextRecords = mapOf("reports" to context.records.toMutableList()),
+            contextText = context.text,
             followUpQueries = parsed.followUps,
             score = parsed.score,
             llmCalls = 1,
@@ -284,14 +436,26 @@ class DriftSearchEngine(
         )
     }
 
-    private fun buildPrimerContext(topK: Int = 5): String {
-        if (communityReports.isEmpty()) return ""
-        return communityReports
-            .sortedByDescending { it.rank ?: 0.0 }
-            .take(topK)
-            .joinToString("\n\n") { report ->
+    private fun buildPrimerContext(topK: Int = 5): PrimerContext {
+        if (communityReports.isEmpty()) return PrimerContext("", emptyList())
+        val sorted = communityReports.sortedByDescending { it.rank ?: 0.0 }
+        val selected = sorted.take(topK)
+        val text =
+            selected.joinToString("\n\n") { report ->
                 "Community ${report.communityId} (rank=${report.rank ?: 0.0}): ${report.summary}"
             }
+        val records =
+            sorted.map { report ->
+                val id = report.id ?: report.shortId ?: report.communityId.toString()
+                mutableMapOf(
+                    "id" to id,
+                    "community_id" to report.communityId.toString(),
+                    "title" to (report.title ?: report.communityId.toString()),
+                    "rank" to (report.rank?.toString() ?: ""),
+                    "in_context" to if (report in selected) "true" else "false",
+                )
+            }
+        return PrimerContext(text, records)
     }
 
     private fun parsePrimer(
@@ -317,31 +481,10 @@ class DriftSearchEngine(
         val score: Double?,
     )
 
-    private data class DriftAction(
-        val followUpQuery: String,
-        var result: QueryResult? = null,
+    private data class PrimerContext(
+        val text: String,
+        val records: List<MutableMap<String, String>>,
     )
-
-    private data class DriftQueryState(
-        val pending: MutableList<DriftAction> = mutableListOf(),
-        val completedActions: MutableList<DriftAction> = mutableListOf(),
-        val seenQueries: MutableSet<String> = mutableSetOf(),
-    ) {
-        fun addActions(followUps: List<String>) {
-            followUps
-                .filter { it.isNotBlank() }
-                .filter { seenQueries.add(it) }
-                .forEach { pending.add(DriftAction(it)) }
-        }
-
-        fun hasPendingActions(): Boolean = pending.any { it.result == null }
-
-        fun nextPendingAction(): DriftAction? =
-            pending
-                .filter { it.result == null }
-                .maxByOrNull { it.result?.score ?: 0.0 } // prioritize higher scored if available
-                ?: pending.firstOrNull { it.result == null }
-    }
 
     private fun buildPrimerFallback(question: String): QueryResult {
         val global = runBlocking { globalSearchEngine?.search(question) }

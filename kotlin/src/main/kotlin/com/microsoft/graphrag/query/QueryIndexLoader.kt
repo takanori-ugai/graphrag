@@ -473,7 +473,8 @@ class QueryIndexLoader(
     ): List<T> {
         if (!Files.exists(path)) return emptyList()
         return runCatching {
-            ParquetReader.builder(GroupReadSupport(), HadoopPath(path.toUri().toString())).build().use { reader ->
+            val hadoopPath = HadoopPath(path.toAbsolutePath().normalize().toString())
+            ParquetReader.builder(GroupReadSupport(), hadoopPath).build().use { reader ->
                 generateSequence { reader.read() }
                     .mapNotNull { runCatching { parser(it) }.getOrNull() }
                     .toList()

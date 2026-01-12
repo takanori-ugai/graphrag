@@ -92,10 +92,17 @@ class LocalQueryEngine(
                 returnCandidateContext = true,
                 contextCallbacks = callbacks.map { cb -> { res -> cb.onContext(res.contextRecords) } },
             )
-        val prompt = buildPrompt(responseType, contextResult.contextText, driftQuery)
+        val promptBase = buildPrompt(responseType, contextResult.contextText, driftQuery)
+        val promptWithJson =
+            if (modelParams.jsonResponse) {
+                "$promptBase\n\nReturn ONLY valid JSON per the schema above."
+            } else {
+                promptBase
+            }
+        val finalPrompt = "$promptWithJson\n\nUser question: $question"
         callbacks.forEach { it.onContext(contextResult.contextRecords) }
-        val parsed = generate(prompt, question)
-        val promptTokens = encoding.countTokens(prompt)
+        val parsed = generate(finalPrompt)
+        val promptTokens = encoding.countTokens(finalPrompt)
         val answerTokens = encoding.countTokens(parsed.answer)
         val llmCallsCategories = mapOf("response" to 1, "build_context" to contextResult.llmCalls)
         val promptTokensCategories = mapOf("response" to promptTokens, "build_context" to contextResult.promptTokens)
@@ -141,24 +148,20 @@ class LocalQueryEngine(
             .replace("{context_data}", context)
             .replace("{response_type}", responseType)
             .let { prompt ->
-                if (prompt.contains("{global_query}")) prompt.replace("{global_query}", driftQuery ?: "") else prompt
+                if (prompt.contains("{global_query}")) {
+                    prompt.replace("{global_query}", driftQuery ?: "")
+                } else if (!driftQuery.isNullOrBlank()) {
+                    "$prompt\n\nGlobal query: $driftQuery"
+                } else {
+                    prompt
+                }
             }
 
-    private suspend fun generate(
-        systemPrompt: String,
-        question: String,
-    ): ParsedAnswer {
+    private suspend fun generate(prompt: String): ParsedAnswer {
         val builder = StringBuilder()
-        val promptWithJson =
-            if (modelParams.jsonResponse) {
-                "$systemPrompt\n\nReturn ONLY valid JSON per the schema above."
-            } else {
-                systemPrompt
-            }
-        val finalPrompt = "$promptWithJson\n\nUser question: $question"
         val future = CompletableFuture<String>()
         streamingModel.chat(
-            finalPrompt,
+            prompt,
             object : StreamingChatResponseHandler {
                 override fun onPartialResponse(partialResponse: String) {
                     builder.append(partialResponse)
@@ -202,9 +205,15 @@ class LocalQueryEngine(
                     returnCandidateContext = true,
                     contextCallbacks = callbacks.map { cb -> { res -> cb.onContext(res.contextRecords) } },
                 )
-            val prompt = buildPrompt(responseType, contextResult.contextText, driftQuery)
+            val promptBase = buildPrompt(responseType, contextResult.contextText, driftQuery)
+            val promptWithJson =
+                if (modelParams.jsonResponse) {
+                    "$promptBase\n\nReturn ONLY valid JSON per the schema above."
+                } else {
+                    promptBase
+                }
             callbacks.forEach { it.onContext(contextResult.contextRecords) }
-            val finalPrompt = "$prompt\n\nUser question: $question"
+            val finalPrompt = "$promptWithJson\n\nUser question: $question"
             val builder = StringBuilder()
             streamingModel.chat(
                 finalPrompt,
