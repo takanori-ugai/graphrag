@@ -2,11 +2,13 @@ package com.microsoft.graphrag.index
 
 import dev.langchain4j.model.openai.OpenAiChatModel
 import dev.langchain4j.service.AiServices
+import io.github.oshai.kotlinlogging.KotlinLogging
 
 class CommunityReportWorkflow(
     private val chatModel: OpenAiChatModel,
     private val prompts: PromptRepository = PromptRepository(),
 ) {
+    private val logger = KotlinLogging.logger {}
     private val reporter = AiServices.create(Reporter::class.java, chatModel)
 
     fun generateReports(
@@ -74,14 +76,14 @@ class CommunityReportWorkflow(
     /**
      * Builds a CSV table of entities with columns "id", "entity", and "description".
      *
-     * @param entities List of entities to include; each row uses a 1-based index as the `id`, the entity's `name` as `entity`, and the entity's `type` (or `"entity"` when blank) as `description`. All values are escaped for CSV.
+     * @param entities List of entities to include; each row uses a 1-based index as the `id`, the entity's `name` as `entity`, and the entity's `description` (or `"entity"` when blank) as `description`. All values are escaped for CSV.
      * @return A string containing the CSV header and one row per entity.
      */
     private fun buildEntitiesTable(entities: List<Entity>): String =
         buildString {
             appendLine("id,entity,description")
             entities.forEachIndexed { idx, e ->
-                val description = e.type.ifBlank { "entity" }
+                val description = e.description.orEmpty().ifBlank { "entity" }
                 appendLine("${idx + 1},${escapeCsv(e.name)},${escapeCsv(description)}")
             }
         }
@@ -263,7 +265,11 @@ class CommunityReportWorkflow(
                 .loadCommunityReportPrompt()
                 .replace("{max_report_length}", maxLength.toString())
                 .replace("{input_text}", inputText)
-        return runCatching { reporter.chat(prompt) ?: "" }.getOrElse { "" }.trim()
+        return runCatching { reporter.chat(prompt) ?: "" }
+            .getOrElse { e ->
+                logger.warn(e) { "Community report prompt failed" }
+                ""
+            }.trim()
     }
 
     private interface Reporter {

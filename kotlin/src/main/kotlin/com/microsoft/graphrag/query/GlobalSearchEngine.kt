@@ -13,13 +13,13 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.future.await
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.util.concurrent.CompletableFuture
-import java.util.concurrent.TimeUnit
 import kotlin.math.min
 
 data class GlobalSearchResult(
@@ -610,13 +610,12 @@ class GlobalSearchEngine(
     /**
      * Sends a prompt to the streaming model, collects streamed tokens, and returns the full response.
      *
-     * Streams partial tokens to registered callbacks as they arrive and blocks until the complete
-     * response is available (up to 5 minutes).
+     * Streams partial tokens to registered callbacks as they arrive and awaits completion without blocking threads.
      *
      * @param prompt The text prompt to send to the streaming model.
      * @return The concatenated full response produced by the streaming model.
      */
-    private fun streamAnswer(prompt: String): String {
+    private suspend fun streamAnswer(prompt: String): String {
         val builder = StringBuilder()
         val future = CompletableFuture<String>()
         streamingModel.chat(
@@ -636,7 +635,7 @@ class GlobalSearchEngine(
                 }
             },
         )
-        return future.get(5, TimeUnit.MINUTES)
+        return future.await()
     }
 
     /**

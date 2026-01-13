@@ -38,16 +38,19 @@ suspend fun runPipeline(
 
         val state = loadExistingState(outputStorage).toMutableMap()
         if (additionalContext != null) {
-            val add = state.getOrPut("additional_context") { mutableMapOf<String, Any?>() }
-            if (add is MutableMap<*, *>) {
-                @Suppress("UNCHECKED_CAST")
-                (add as MutableMap<String, Any?>).putAll(additionalContext)
-            }
+            val existing = state["additional_context"]
+            val add =
+                if (existing is MutableMap<*, *>) {
+                    @Suppress("UNCHECKED_CAST")
+                    existing as MutableMap<String, Any?>
+                } else {
+                    mutableMapOf<String, Any?>().also { state["additional_context"] = it }
+                }
+            add.putAll(additionalContext)
         }
 
         val context: PipelineRunContext
         val activeOutput: PipelineStorage
-        val previousStorage: PipelineStorage?
 
         if (isUpdateRun) {
             val updateRoot = FilePipelineStorage(config.updateOutputDir)
@@ -67,7 +70,6 @@ suspend fun runPipeline(
                 PipelineRunContext(
                     inputStorage = inputStorage,
                     outputStorage = deltaStorage,
-                    previousStorage = backup,
                     cache = cache,
                     callbacks = callbacks,
                     state = state,

@@ -84,7 +84,7 @@ fun progressTicker(
  *
  * @param iterable The underlying sequence of elements to iterate.
  * @param progress Optional callback invoked with progress updates for each element consumed.
- * @param numTotal If provided, used as the total item count; otherwise the iterable's `count()` is used.
+ * @param numTotal If provided, used as the total item count; otherwise falls back to collection size or errors.
  * @param description Optional human-readable description included in emitted Progress objects.
  * @return An Iterable that produces the same elements as `iterable` while reporting progress on consumption.
  */
@@ -94,7 +94,10 @@ fun <T> progressIterable(
     numTotal: Int? = null,
     description: String = "",
 ): Iterable<T> {
-    val total = numTotal ?: iterable.count()
+    val total =
+        numTotal
+            ?: (iterable as? Collection<*>)?.size
+            ?: error("numTotal must be provided for non-Collection iterables")
     val ticker = progressTicker(progress, total, description)
     return Iterable {
         val iterator = iterable.iterator()

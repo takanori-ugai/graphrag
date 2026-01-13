@@ -133,7 +133,7 @@ class NoopCache : PipelineCache {
     }
 }
 
-fun <T> flowFromResults(builder: suspend (suspend (PipelineRunResult) -> Unit) -> Unit): Flow<PipelineRunResult> =
+fun flowFromResults(builder: suspend (suspend (PipelineRunResult) -> Unit) -> Unit): Flow<PipelineRunResult> =
     flow {
         builder { emit(it) }
     }

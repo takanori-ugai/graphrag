@@ -39,6 +39,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.sqrt
 
 /**
@@ -374,7 +375,7 @@ class GlobalQueryEngine(
 ) {
     private val logger = KotlinLogging.logger {}
     private val communityEmbeddingCache =
-        mutableMapOf<Int, List<Double>>().apply {
+        ConcurrentHashMap<Int, List<Double>>().apply {
             communityReportEmbeddings.forEach { put(it.communityId, it.vector) }
         }
 

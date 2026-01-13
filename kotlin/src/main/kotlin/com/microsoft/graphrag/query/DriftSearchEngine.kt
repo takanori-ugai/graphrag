@@ -7,10 +7,11 @@ import com.microsoft.graphrag.index.CommunityReport
 import dev.langchain4j.model.chat.response.ChatResponse
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel
+import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.future.await
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -245,6 +246,8 @@ class DriftSearchEngine(
     private val encoding: Encoding = Encodings.newLazyEncodingRegistry().getEncoding(EncodingType.CL100K_BASE),
     private val maxIterations: Int = 3,
 ) {
+    private val logger = KotlinLogging.logger {}
+
     /**
      * Performs a DRIFT-style search for the given question, producing a final answer, collected action results, and usage accounting.
      *
@@ -330,6 +333,7 @@ class DriftSearchEngine(
             try {
                 primerSearch(question)
             } catch (error: Exception) {
+                logger.warn(error) { "Primer search failed, using fallback" }
                 buildPrimerFallback(question)
             }
         totalLlmCalls += primer.llmCalls
@@ -395,14 +399,14 @@ class DriftSearchEngine(
      * @param followUpQueries Optional initial follow-up queries to seed the planner.
      * @return A Flow of strings containing emitted completed action answers (if any) followed by partial reduce-phase tokens; the flow completes when the reduce step finishes.
      */
-    fun streamSearch(
+    suspend fun streamSearch(
         question: String,
         followUpQueries: List<String> = emptyList(),
-    ): Flow<String> =
-        callbackFlow {
-            val planner = runBlocking { runPlanner(question, followUpQueries) }
-            callbacks.forEach { it.onContext(planner.contextRecords) }
+    ): Flow<String> {
+        val planner = runPlanner(question, followUpQueries)
+        callbacks.forEach { it.onContext(planner.contextRecords) }
 
+        return callbackFlow {
             planner.state.completedResults().forEach { res ->
                 if (res.answer.isNotBlank()) trySend(res.answer)
             }
@@ -439,6 +443,7 @@ class DriftSearchEngine(
             )
             awaitClose {}
         }
+    }
 
     /**
      * Sends a reduce prompt (including provided context and the user question) to the streaming model and returns a QueryResult representing the reduce-phase response.
@@ -447,7 +452,7 @@ class DriftSearchEngine(
      * @param contextText The textual context assembled from prior planner/local results to include in the prompt.
      * @return A QueryResult containing the reduce-phase answer, empty context lists/records, the supplied contextText, and usage counts (llmCalls, promptTokens, outputTokens) categorized under "reduce". The `answer` will be an empty string if the streaming model fails or an error occurs while collecting the response.
      */
-    private fun reduce(
+    private suspend fun reduce(
         question: String,
         contextText: String,
     ): QueryResult {
@@ -479,7 +484,7 @@ class DriftSearchEngine(
                 }
             },
         )
-        val answer = runCatching { future.get() }.getOrElse { "" }
+        val answer = runCatching { future.await() }.getOrElse { "" }
         val outputTokens = encoding.countTokens(answer)
         callbacks.forEach { it.onReduceResponseEnd(answer) }
         return QueryResult(

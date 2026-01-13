@@ -32,8 +32,8 @@ class EmbedWorkflow(
             val ticker = progressTicker(progress, chunks.size, description)
             val results =
                 chunks.mapNotNull { chunk ->
-                    val vector = embed(chunk.text) ?: return@mapNotNull null
                     ticker()
+                    val vector = embed(chunk.text) ?: return@mapNotNull null
                     TextEmbedding(chunkId = chunk.id, vector = vector)
                 }
             ticker.done()
@@ -57,8 +57,8 @@ class EmbedWorkflow(
             val ticker = progressTicker(progress, entities.size, description)
             val results =
                 entities.mapNotNull { entity ->
-                    val vector = embed(entity.name) ?: return@mapNotNull null
                     ticker()
+                    val vector = embed(entity.name) ?: return@mapNotNull null
                     EntityEmbedding(entityId = entity.id, vector = vector)
                 }
             ticker.done()
