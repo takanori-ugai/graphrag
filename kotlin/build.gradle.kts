@@ -25,6 +25,7 @@ val jgraphtVersion = "1.5.2"
 val parquetVersion = "1.13.1"
 val networkAnalysisVersion = "1.3.0"
 val smileVersion = "4.4.0"
+val langchain4jVersion = "1.10.0"
 val osName = System.getProperty("os.name").lowercase()
 val archName = System.getProperty("os.arch").lowercase()
 val javafxPlatform =
@@ -68,7 +69,6 @@ dependencies {
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.17.2")
     implementation("org.jgrapht:jgrapht-core:$jgraphtVersion")
     implementation("blue.strategic.parquet:parquet-floor:1.51")
-    implementation("dev.langchain4j:langchain4j-open-ai:1.9.1")
     implementation("nl.cwts:networkanalysis:$networkAnalysisVersion")
     implementation("com.github.haifengl:smile-base:$smileVersion")
     implementation("com.github.haifengl:smile-core:$smileVersion")
@@ -80,10 +80,10 @@ dependencies {
     implementation("info.picocli:picocli:4.7.6")
 
     // LangChain4j dependencies
-    implementation("dev.langchain4j:langchain4j:1.9.1")
-    implementation("dev.langchain4j:langchain4j-open-ai:1.9.1")
-    implementation("dev.langchain4j:langchain4j-ollama:1.9.1")
-    implementation("dev.langchain4j:langchain4j-community-neo4j:1.9.1-beta17")
+    implementation("dev.langchain4j:langchain4j:$langchain4jVersion")
+    implementation("dev.langchain4j:langchain4j-open-ai:$langchain4jVersion")
+    implementation("dev.langchain4j:langchain4j-ollama:$langchain4jVersion")
+    implementation("dev.langchain4j:langchain4j-community-neo4j:1.10.0-beta18")
 
     implementation("org.openjfx:javafx-base:$javafxVersion:$javafxPlatform")
     implementation("org.openjfx:javafx-graphics:$javafxVersion:$javafxPlatform")
@@ -96,6 +96,7 @@ dependencies {
     implementation("org.mongodb:mongodb-driver-kotlin-coroutine:5.1.0")
     implementation("org.mongodb:bson-kotlinx:5.1.0")
     implementation("org.neo4j.driver:neo4j-java-driver:5.20.0")
+    implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.17.2")
 
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit:2.3.0")
     testImplementation("io.mockk:mockk:1.13.9")

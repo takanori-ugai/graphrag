@@ -1,0 +1,10 @@
+Done:  - Multi-index querying: Python multi_index_* APIs keep indexes separate, tolerate missing optional tables, and let
+    callers name/index outputs. Kotlin QueryIndexLoader/GraphRagCli merely merge multiple --data dirs into one dataset,
+    losing index names and skipping per-index handling for absent covariates/reports/etc.
+Todo:  - Model/config parity: Python query CLI loads GraphRagConfig via load_config and ModelManager to honor provider-
+    specific chat/embedding settings (azure/openai/azure_inference, tokens, endpoints). Kotlin QueryCommand/QueryConfigLoader
+    hardcode OpenAI streaming + embeddings via OPENAI_API_KEY and ignore language_model/vector_store config, so it can't run
+    against non-OpenAI providers or reuse Python settings.yaml as-is.
+       - Storage backends: Python _resolve_output_files uses create_storage_from_config + load_table_from_storage
+    (../graphrag/cli/query.py) to read outputs from configured storage (Azure Blob, etc.). Kotlin QueryIndexLoader only
+    walks local folders and vector_store.json/parquet, so remote/custom storages from settings aren't supported.

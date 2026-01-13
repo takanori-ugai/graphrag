@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonProperty
 import dev.langchain4j.model.openai.OpenAiChatModel
 import dev.langchain4j.service.AiServices
+import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.serialization.Serializable
 import java.util.UUID
 
@@ -15,15 +16,24 @@ class ExtractGraphWorkflow(
     private val extractor =
         AiServices.create(Extractor::class.java, chatModel)
 
+    /**
+     * Extracts entities and relationships from the provided document chunks using the configured extraction model.
+     *
+     * For each chunk this function builds a prompt, invokes the model, parses the structured response, normalizes entity ids
+     * (generating UUIDs when absent), assigns each entity and relationship a sourceChunkId equal to the originating chunk's id,
+     * and resolves relationship endpoints to entity ids when an entity name in the same chunk matches a relationship endpoint.
+     *
+     * @param chunks The list of DocumentChunk objects to analyze; each chunk's id is recorded on entities and relationships produced from that chunk.
+     * @return A GraphExtractResult containing all aggregated entities and relationships extracted from the input chunks.
     suspend fun extract(chunks: List<DocumentChunk>): GraphExtractResult {
         val entities = mutableListOf<Entity>()
         val relationships = mutableListOf<Relationship>()
 
         for (chunk in chunks) {
             val prompt = buildPrompt(chunk)
-            println("ExtractGraph: chunk ${chunk.id} text preview: ${chunk.text.take(200)}")
+            logger.debug { "ExtractGraph: chunk ${chunk.id} text preview: ${chunk.text.take(200)}" }
             val response = invokeChat(prompt)
-            println("LLM structured response for chunk ${chunk.id}: $response")
+            logger.debug { "LLM structured response for chunk ${chunk.id}: $response" }
             val parsed = parseResponse(response)
             val chunkEntities =
                 parsed.entities.map { entity ->
@@ -101,13 +111,27 @@ class ExtractGraphWorkflow(
         return parts.joinToString("; ").ifBlank { null }
     }
 
-    private fun invokeChat(prompt: String): ModelExtractionResponse? =
+    /**
+         * Sends the given prompt to the extractor and returns the extraction result.
+         *
+         * @param prompt The user message / prompt sent to the extractor.
+         * @return `ModelExtractionResponse` returned by the extractor, or `null` if the extraction failed.
+         */
+        private fun invokeChat(prompt: String): ModelExtractionResponse? =
         runCatching { extractor.extract(prompt) }.getOrElse {
-            println("Failed to parse extraction response: ${it.message}")
+            logger.warn(it) {
+                "Failed to parse extraction response; prompt preview: ${prompt.take(200)}"
+            }
             null
         }
 
     private interface Extractor {
+        /**
+         * Extracts entities and relationships from the given user message according to the extraction instructions.
+         *
+         * @param userMessage The user-facing prompt or document text containing extraction instructions and content to analyze.
+         * @return A `ModelExtractionResponse` containing the extracted entities and relationships; lists may be empty if none are found.
+         */
         @dev.langchain4j.service.SystemMessage(
             "You are an information extraction assistant. Extract entities and relationships exactly as instructed in the user message.",
         )
@@ -115,36 +139,40 @@ class ExtractGraphWorkflow(
             @dev.langchain4j.service.UserMessage userMessage: String,
         ): ModelExtractionResponse
     }
+
+    companion object {
+        private val logger = KotlinLogging.logger {}
+    }
 }
 
 @Serializable
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class ModelExtractionResponse
-@JsonCreator
-constructor(
-    @JsonProperty("entities") val entities: List<ModelEntity> = emptyList(),
-    @JsonProperty("relationships") val relationships: List<ModelRelationship> = emptyList(),
-)
+    @JsonCreator
+    constructor(
+        @JsonProperty("entities") val entities: List<ModelEntity> = emptyList(),
+        @JsonProperty("relationships") val relationships: List<ModelRelationship> = emptyList(),
+    )
 
 @Serializable
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class ModelEntity
-@JsonCreator
-constructor(
-    @JsonProperty("id") val id: String? = null,
-    @JsonProperty("name") val name: String,
-    @JsonProperty("type") val type: String,
-    @JsonProperty("description") val description: String? = null,
-)
+    @JsonCreator
+    constructor(
+        @JsonProperty("id") val id: String? = null,
+        @JsonProperty("name") val name: String,
+        @JsonProperty("type") val type: String,
+        @JsonProperty("description") val description: String? = null,
+    )
 
 @Serializable
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class ModelRelationship
-@JsonCreator
-constructor(
-    @JsonProperty("source") val source: String,
-    @JsonProperty("target") val target: String,
-    @JsonProperty("type") val type: String? = null,
-    @JsonProperty("description") val description: String? = null,
-    @JsonProperty("strength") val strength: Double? = null,
-)
+    @JsonCreator
+    constructor(
+        @JsonProperty("source") val source: String,
+        @JsonProperty("target") val target: String,
+        @JsonProperty("type") val type: String? = null,
+        @JsonProperty("description") val description: String? = null,
+        @JsonProperty("strength") val strength: Double? = null,
+    )
