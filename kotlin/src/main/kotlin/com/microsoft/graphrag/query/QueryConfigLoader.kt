@@ -98,6 +98,20 @@ object QueryConfigLoader {
             .registerKotlinModule()
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
 
+    /**
+     * Builds a QueryConfig for the given project root by loading and merging configuration from a settings file.
+     *
+     * If a settings file is provided (via `configPath`) or found at `<root>/settings.yaml`, that file is parsed and used
+     * to populate index definitions, default model selections, prompts, and per-component search settings. If the file
+     * is missing or cannot be parsed, a sensible default configuration is returned based on `root` and any provided
+     * `overrideOutputDirs`.
+     *
+     * @param root The filesystem root path for the project; used to resolve relative paths in the configuration.
+     * @param configPath Optional explicit path to a settings file; when null the loader looks for `settings.yaml` under `root`.
+     * @param overrideOutputDirs Optional list of output directories that override outputs declared in the settings file.
+     * @return A fully populated QueryConfig containing resolved root, index configurations, default chat/embedding models,
+     *         and the assembled BasicSearchConfig, LocalSearchConfig, GlobalSearchConfig, DriftSearchConfig, and question prompt.
+     */
     fun load(
         root: Path,
         configPath: Path?,
@@ -204,6 +218,17 @@ object QueryConfigLoader {
         )
     }
 
+    /**
+     * Build a QueryConfig populated with sensible defaults derived from the given root and index configurations.
+     *
+     * If `indexConfigs` is empty, a single default index at `sample-index/output` under `root` is used. The returned
+     * configuration includes default chat and embedding models and default settings for basic, local, global, and drift
+     * search behaviors as well as the question generation prompt.
+     *
+     * @param root The base filesystem path used to resolve default index locations.
+     * @param indexConfigs A list of index configurations to include; may be empty to trigger the default index creation.
+     * @return A fully populated QueryConfig with provided or default indexes and default model/search settings.
+     */
     private fun defaultConfig(
         root: Path,
         indexConfigs: List<QueryIndexConfig>,
@@ -272,6 +297,21 @@ object QueryConfigLoader {
         )
     }
 
+    /**
+     * Constructs index configurations using override directories, explicit outputs from the raw config, or sensible defaults.
+     *
+     * When `overrideDirs` is non-empty it maps each provided path to an index (names are taken from the raw outputs by
+     * position when available, otherwise from the directory name). If `overrideDirs` is empty but `raw.outputs` is present
+     * those entries are used. If `raw.output.baseDir` is set a single index named "output" is created from that base
+     * directory. Otherwise a default "output" index at `configRoot/sample-index/output` is returned.
+     *
+     * Names are sanitized and returned paths are normalized (and absolute for overrides).
+     *
+     * @param configRoot Base directory used to resolve relative output/baseDir values from the raw configuration.
+     * @param raw Parsed raw configuration that may contain `outputs` (multiple) or `output.baseDir` (single).
+     * @param overrideDirs If non-empty, these explicit directories take precedence and each becomes an index entry.
+     * @return A list of QueryIndexConfig instances with sanitized names and normalized paths.
+     */
     private fun buildIndexConfigs(
         configRoot: Path,
         raw: RawConfig?,
@@ -309,6 +349,12 @@ object QueryConfigLoader {
         return listOf(QueryIndexConfig("output", configRoot.resolve("sample-index/output")))
     }
 
+    /**
+     * Resolve a raw model entry by id and construct a corresponding QueryModelConfig.
+     *
+     * @param models Map of model ids to their raw configurations.
+     * @param id The model id to resolve; if `null` or not present in `models`, the function returns `null`.
+     * @return `QueryModelConfig` for the resolved model, or `null` if no matching entry exists. The returned model's `ModelParams.maxTokens` is `raw.maxTokens` if present, otherwise `raw.maxCompletionTokens`. */
     private fun resolveModel(
         models: Map<String, RawModelConfig>,
         id: String?,
@@ -323,6 +369,13 @@ object QueryConfigLoader {
         return QueryModelConfig(modelConfig.model, params)
     }
 
+    /**
+     * Resolve the embedding model name from the raw configuration, falling back to the default embedding id.
+     *
+     * @param raw RawConfig containing model definitions.
+     * @param id Optional embedding model id to look up; when null the default embedding id is used.
+     * @return The embedding model name for `id` if defined, otherwise the model name for the default embedding id, or `null` if neither is found.
+     */
     private fun resolveEmbedding(
         raw: RawConfig,
         id: String?,
@@ -331,6 +384,14 @@ object QueryConfigLoader {
         return raw.models[targetId]?.model ?: raw.models[DEFAULT_EMBEDDING_ID]?.model
     }
 
+    /**
+     * Loads a prompt from a file path resolved against `root`, or returns the provided fallback.
+     *
+     * @param root Base directory used to resolve `path` when `path` is relative.
+     * @param path File path to the prompt; may be relative to `root` or absolute. If `null` or blank, `fallback` is returned.
+     * @param fallback Default prompt text to return when `path` is missing or the file cannot be read.
+     * @return The prompt file contents if successfully read, otherwise `fallback`.
+     */
     private fun loadPrompt(
         root: Path,
         path: String?,

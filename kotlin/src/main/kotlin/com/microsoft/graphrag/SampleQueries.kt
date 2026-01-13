@@ -16,7 +16,13 @@ import java.nio.file.Path
  * Run with:
  * ./gradlew run -PmainClass=SampleQueriesKt
  */
-fun main() =
+/**
+     * Runs four sample query scenarios (Basic, Local, Global, Drift) against a prebuilt sample index and prints their answers.
+     *
+     * Reads OPENAI_API_KEY from the environment, builds an OpenAI streaming chat model and an embedding model, loads the index from
+     * "sample-index/output", executes each query engine with a fixed question and response type, and prints each engine's resulting answer to stdout.
+     */
+    fun main() =
     runBlocking {
         val apiKey = System.getenv("OPENAI_API_KEY") ?: error("Set OPENAI_API_KEY")
         val streamingModel =

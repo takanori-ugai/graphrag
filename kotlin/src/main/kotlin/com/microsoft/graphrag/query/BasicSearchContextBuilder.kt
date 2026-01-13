@@ -41,6 +41,23 @@ class BasicSearchContextBuilder(
         val outputTokensCategories: Map<String, Int> = emptyMap(),
     )
 
+    /**
+     * Builds a token-budgeted search context by retrieving and ranking text chunks relevant to `query`.
+     *
+     * The method embeds the query (unless `query` is blank), attempts nearest-chunk retrieval from the vector store,
+     * and falls back to embedding-based scoring of precomputed text embeddings when needed. It assembles a header
+     * and delimited rows (columns are `textIdColumn` and `textColumn`) until `maxContextTokens` would be exceeded.
+     *
+     * @param query The user query text; when blank, embedding-based nearest retrieval is skipped.
+     * @param k Maximum number of candidate chunks to consider for ranking (default 10).
+     * @param maxContextTokens Maximum allowed tokens for the returned context (including the header).
+     * @param contextName Map key under which the selected context records are returned.
+     * @return A [BasicContextResult] containing:
+     *   - `contextText`: rendered header and selected rows (delimited by `columnDelimiter`),
+     *   - `contextChunks`: selected `QueryContextChunk` entries,
+     *   - `contextRecords`: a map from `contextName` to the list of record maps,
+     *   - token and LLM usage metrics keyed by the "build_context" category.
+     */
     @Suppress("CyclomaticComplexMethod")
     suspend fun buildContext(
         query: String,
@@ -113,7 +130,13 @@ class BasicSearchContextBuilder(
         )
     }
 
-    private suspend fun embed(text: String): List<Double>? =
+    /**
+         * Compute an embedding vector for the given text using the configured embedding model.
+         *
+         * @param text The input text to embed.
+         * @return The embedding vector as a list of `Double`, or `null` if embedding failed.
+         */
+        private suspend fun embed(text: String): List<Double>? =
         withContext(Dispatchers.IO) {
             runCatching {
                 val response: Response<dev.langchain4j.data.embedding.Embedding> = embeddingModel.embed(text)
@@ -128,8 +151,20 @@ class BasicSearchContextBuilder(
             }
         }
 
-    private fun tokenCount(text: String): Int = encoding.countTokens(text)
+    /**
+ * Count tokens in the given text using the configured encoding.
+ *
+ * @return The number of tokens in the provided text.
+ */
+private fun tokenCount(text: String): Int = encoding.countTokens(text)
 
+    /**
+     * Compute the cosine similarity between two vectors.
+     *
+     * @param a The first vector.
+     * @param b The second vector (must be the same length as `a`).
+     * @return Similarity in the range -1.0 to 1.0; 0.0 if either vector is empty, lengths differ, or either vector has zero magnitude.
+     */
     private fun cosineSimilarity(
         a: List<Double>,
         b: List<Double>,

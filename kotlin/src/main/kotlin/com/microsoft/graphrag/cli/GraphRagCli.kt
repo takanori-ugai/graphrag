@@ -386,6 +386,17 @@ class QueryCommand : Runnable {
     )
     var driftQuery: String? = null
 
+    /**
+     * Execute the CLI "query" command: load configuration and index data, build models and engines,
+     * run the selected query method (basic, local, global, or drift) with optional streaming, and print the result.
+     *
+     * The command loads query and index configuration, constructs embedding and streaming chat models,
+     * selects and runs the appropriate query engine, enriches context records with index names, and outputs
+     * the final answer and (when verbose) context details.
+     *
+     * @throws IllegalStateException if the OPENAI_API_KEY environment variable is not set.
+     * @throws CommandLine.ParameterException if the selected query method is unsupported.
+     */
     override fun run() {
         val selectedMethod = method.lowercase()
 
@@ -658,6 +669,18 @@ class QueryCommand : Runnable {
         }
     }
 
+    /**
+     * Annotates context records with their originating index name when it can be determined.
+     *
+     * For each record in `contextRecords`, attempts to locate an index name in `lookup` using
+     * common identifier fields (for example `id`, `entity`, `entity_id`, `chunk_id`,
+     * `community`, `community_id`) and, when found, returns a copy of the record with an
+     * added `"index_name"` entry. If `contextRecords` is empty or `lookup` contains one or
+     * zero index names, the input is returned unchanged.
+     *
+     * @param contextRecords A map from source name to a list of context records (each record is a map of string keys to values).
+     * @param lookup An IndexLookup providing mappings from identifiers to index names used to resolve records' origins.
+     * @return A map with the same structure as `contextRecords` where records that could be resolved include an `"index_name"` key; unresolved records are unchanged.
     private fun attachIndexNames(
         contextRecords: Map<String, List<Map<String, String>>>,
         lookup: IndexLookup,
@@ -695,6 +718,14 @@ class QueryCommand : Runnable {
         }
     }
 
+    /**
+     * Filter community reports to those whose community is at the specified depth in the hierarchy.
+     *
+     * @param reports The list of community reports to filter.
+     * @param hierarchy A map from community id to its parent community id; a negative parent or missing entry terminates traversal.
+     * @param level The target depth (0 = root). If `null` or negative, or if `hierarchy` is empty, the original `reports` list is returned unchanged.
+     * @return A list of `CommunityReport` instances whose community depth equals `level`.
+     */
     private fun filterCommunityReports(
         reports: List<CommunityReport>,
         hierarchy: Map<Int, Int>,

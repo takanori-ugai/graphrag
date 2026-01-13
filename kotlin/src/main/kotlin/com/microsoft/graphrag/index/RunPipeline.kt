@@ -9,7 +9,18 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
 
-@Suppress("LongParameterList", "LongMethod", "TooGenericExceptionCaught")
+/**
+     * Execute a Pipeline and emit per-workflow run results as a Flow.
+     *
+     * When `isUpdateRun` is true, the run writes outputs under `config.updateOutputDir`, creates
+     * timestamped delta and previous backups, and records an update timestamp in the run state.
+     *
+     * @param callbacks Callback interface used for progress and workflow lifecycle notifications.
+     * @param isUpdateRun If true, run in update mode (produce a delta and backup previous output); otherwise perform a regular run.
+     * @param additionalContext Optional map merged into the pipeline run state under the key `"additional_context"`.
+     * @param inputDocumentsJson Optional JSON string of preloaded documents; when provided, it is written into the active output storage and the corresponding document-loading step is skipped.
+     * @return A Flow that emits a PipelineRunResult for each executed workflow. On error the Flow emits a single PipelineRunResult describing the failure (workflow name, current state, and error message).
+    @Suppress("LongParameterList", "LongMethod", "TooGenericExceptionCaught")
 suspend fun runPipeline(
     pipeline: Pipeline,
     config: GraphRagConfig,
@@ -134,12 +145,31 @@ suspend fun runPipeline(
         }
     }
 
+/**
+ * Load the persisted pipeline run state from `context.json` in the given storage.
+ *
+ * If `context.json` is not present, returns an empty map. When present, decodes the JSON
+ * using StateCodec and returns the resulting state map.
+ *
+ * @param storage The storage to read `context.json` from.
+ * @return A map of state keys to values, or an empty map if no persisted state exists.
+ */
 private suspend fun loadExistingState(storage: PipelineStorage): Map<String, Any?> {
     val stateJson = storage.get("context.json") ?: return emptyMap()
     val elementMap: Map<String, kotlinx.serialization.json.JsonElement> = Json.decodeFromString(StateCodec.stateSerializer, stateJson)
     return StateCodec.decodeState(elementMap).toMutableMap()
 }
 
+/**
+ * Persists the current run statistics and state to the configured output storage.
+ *
+ * Writes a pretty-printed `stats.json` derived from `context.stats`, and writes a pretty-printed
+ * `context.json` representing `context.state`. The `"additional_context"` entry is temporarily
+ * removed from `context.state` before writing `context.json` and restored afterward so it is not
+ * persisted.
+ *
+ * @param context PipelineRunContext whose `stats` and `state` will be serialized to the output storage.
+ */
 private suspend fun dumpJson(context: PipelineRunContext) {
     val statsSnapshot = StatsSnapshot(context.stats.workflows, context.stats.totalRuntime)
     val statsJson = Json { prettyPrint = true }.encodeToString(statsSnapshot)
@@ -168,6 +198,15 @@ private fun timestamp(): String =
         .ofPattern("yyyyMMdd-HHmmss")
         .format(java.time.LocalDateTime.now())
 
+/**
+ * Copy all `.parquet` and `.json` files from the source storage into the destination storage.
+ *
+ * Files are discovered by their relative paths and written to the destination using the same relative paths.
+ * Files that cannot be read from the source are skipped.
+ *
+ * @param storage Source PipelineStorage to read files from.
+ * @param copyStorage Destination PipelineStorage to write copied files into.
+ */
 private suspend fun copyPreviousOutput(
     storage: PipelineStorage,
     copyStorage: PipelineStorage,

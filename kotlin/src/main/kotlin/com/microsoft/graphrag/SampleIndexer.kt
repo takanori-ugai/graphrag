@@ -59,10 +59,21 @@ fun main() {
 }
 
 private class LoggingCallbacks : WorkflowCallbacks {
+    /**
+     * Signals the start of a workflow and logs the workflow name.
+     *
+     * @param name The name of the workflow that is starting.
+     */
     override fun workflowStart(name: String) {
         logger.info { "Starting workflow: $name" }
     }
 
+    /**
+     * Records the completion of the workflow by logging its name and stop reason.
+     *
+     * @param name The workflow's name.
+     * @param result The workflow result containing completion details, including the `stop` indicator.
+     */
     override fun workflowEnd(
         name: String,
         result: WorkflowResult,
@@ -70,6 +81,15 @@ private class LoggingCallbacks : WorkflowCallbacks {
         logger.info { "Finished workflow: $name (stop=${result.stop})" }
     }
 
+    /**
+     * Logs the progress description along with completed and total item counts.
+     *
+     * The description defaults to "progress" if null, and both completed and total counts
+     * default to 0 when absent. The message is emitted via the class logger in the format:
+     * "<description>: <completed>/<total>".
+     *
+     * @param progress Progress data containing an optional description, completedItems, and totalItems.
+     */
     override fun progress(progress: Progress) {
         val desc = progress.description ?: "progress"
         val complete = progress.completedItems ?: 0
