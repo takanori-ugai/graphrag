@@ -34,11 +34,24 @@ data class GraphRagConfig(
 interface WorkflowCallbacks {
     fun workflowStart(name: String)
 
+    /**
+     * Called when a workflow finishes to notify listeners of its outcome.
+     *
+     * @param name The workflow name.
+     * @param result The workflow's outcome, containing the resulting value (nullable) and a `stop` flag indicating whether subsequent workflows should be halted.
+     */
     fun workflowEnd(
         name: String,
         result: WorkflowResult,
     )
 
+    /**
+     * Receives progress updates during workflow execution.
+     *
+     * The default implementation performs no action; implementations may override to report or react to progress (for example, percentage complete, messages, or stage information).
+     *
+     * @param progress Progress information reported by a workflow.
+     */
     fun progress(progress: Progress) {
         // default no-op
     }
@@ -49,6 +62,12 @@ class NoopWorkflowCallbacks : WorkflowCallbacks {
         // no-op
     }
 
+    /**
+     * No-op implementation invoked when a workflow completes.
+     *
+     * @param name The workflow's name.
+     * @param result The workflow's result and stop flag.
+     */
     override fun workflowEnd(
         name: String,
         result: WorkflowResult,
@@ -56,6 +75,11 @@ class NoopWorkflowCallbacks : WorkflowCallbacks {
         // no-op
     }
 
+    /**
+     * Ignores a progress update without performing any action.
+     *
+     * @param progress The progress event to ignore.
+     */
     override fun progress(progress: Progress) {
         // no-op
     }

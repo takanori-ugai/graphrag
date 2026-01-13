@@ -75,6 +75,19 @@ class LocalQueryEngine(
     private val conversationHistoryMaxTurns: Int = 5,
     private val encoding: Encoding = Encodings.newLazyEncodingRegistry().getEncoding(EncodingType.CL100K_BASE),
 ) {
+    /**
+     * Generates an answer to the given question by building a local context, invoking the model, and aggregating results.
+     *
+     * Builds context from entities, relationships, claims, communities, and optional conversation history, constructs a prompt
+     * (optionally requesting JSON), runs the model to produce an answer, and aggregates context, follow-up queries, a score,
+     * and LLM/token usage metrics into a QueryResult.
+     *
+     * @param question The user's question to answer.
+     * @param responseType A descriptor that influences the style or format of the response (injected into the prompt).
+     * @param conversationHistory Optional recent conversation turns to include in context; empty list means no history.
+     * @param driftQuery Optional drift/global query string to modify or augment the prompt/context; null to omit.
+     * @return A QueryResult containing the model's answer text, the context chunks and context records used, any follow-up
+     * queries, an optional score, and aggregated LLM call and token usage metrics.
     suspend fun answer(
         question: String,
         responseType: String,
@@ -129,7 +142,14 @@ class LocalQueryEngine(
         )
     }
 
-    suspend fun buildContext(
+    /**
+             * Produces context chunks relevant to the supplied question and optional conversation history.
+             *
+             * @param question The user's query to find contextual chunks for.
+             * @param conversationHistory Optional prior messages in chronological order to provide conversational context; pass an empty list for no history.
+             * @return A list of QueryContextChunk containing the selected and ranked context pieces for the query.
+             */
+            suspend fun buildContext(
         question: String,
         conversationHistory: List<String> = emptyList(),
     ): List<QueryContextChunk> =
@@ -147,7 +167,20 @@ class LocalQueryEngine(
                 communityProp = communityProp,
             ).contextChunks
 
-    private fun buildPrompt(
+    /**
+             * Builds the system prompt by injecting context, the response type, and an optional global query.
+             *
+             * Replaces `{context_data}` with `context` and `{response_type}` with `responseType`. If the
+             * resulting prompt contains `{global_query}` that placeholder is replaced with `driftQuery`
+             * (or an empty string when `driftQuery` is null). If there is no `{global_query}` placeholder
+             * and `driftQuery` is non-blank, the function appends a new line with `Global query: <driftQuery>`.
+             *
+             * @param responseType A short descriptor of the expected response format or role to inject.
+             * @param context The assembled context block to include in the prompt.
+             * @param driftQuery An optional global query to either replace `{global_query}` or be appended when present.
+             * @return The final prompt string with all applicable replacements and optional appended global query.
+             */
+            private fun buildPrompt(
         responseType: String,
         context: String,
         driftQuery: String?,
@@ -165,6 +198,13 @@ class LocalQueryEngine(
                 }
             }
 
+    /**
+     * Streams a completion for the given prompt, aggregates the emitted tokens, and parses the final response into a ParsedAnswer.
+     *
+     * Streams tokens from the configured streaming model, forwarding each partial token to registered callbacks. If the model produces a full response it is parsed as structured JSON (if possible) into a ParsedAnswer; on generation failure the raw text "No response generated." is parsed and returned.
+     *
+     * @param prompt The full prompt to send to the streaming model.
+     * @return A ParsedAnswer representing the final parsed response (including any follow-up queries or score if present).
     private suspend fun generate(prompt: String): ParsedAnswer {
         val builder = StringBuilder()
         val future = CompletableFuture<String>()
@@ -189,7 +229,17 @@ class LocalQueryEngine(
         return parseStructuredAnswer(raw)
     }
 
-    fun streamAnswer(
+    /**
+         * Streams model-generated tokens for a question using a locally built context and notifies callbacks as tokens arrive.
+         *
+         * Builds a context from local data and optional conversation history, constructs the final prompt (optionally enforcing a JSON-only response), and emits partial response tokens from the streaming model as they are produced.
+         *
+         * @param question The user's question to answer.
+         * @param responseType The desired response type or format hint inserted into the prompt.
+         * @param conversationHistory Past user messages in chronological order; empty by default.
+         * @param driftQuery Optional global/drift query to include or replace context-related placeholders in the prompt.
+         * @return A Flow that emits partial response tokens (`String`) as the streaming model produces them; the flow completes when the model finishes or fails with an error.
+        fun streamAnswer(
         question: String,
         responseType: String,
         conversationHistory: List<String> = emptyList(),
@@ -245,6 +295,15 @@ class LocalQueryEngine(
             awaitClose {}
         }
 
+    /**
+     * Parses a raw model response string into a ParsedAnswer containing an answer, follow-up queries, and an optional score.
+     *
+     * If `raw` is a JSON object with a `response` string, an optional `follow_up_queries` array of strings, and an optional numeric `score`,
+     * those values are extracted and returned. If parsing fails or the JSON is not an object, returns a fallback ParsedAnswer with
+     * the original `raw` as the answer, an empty follow-up list, and a null score.
+     *
+     * @return A ParsedAnswer with `answer`, `followUps`, and `score` populated from the input when available, or a fallback containing the raw text otherwise.
+     */
     private fun parseStructuredAnswer(raw: String): ParsedAnswer {
         val fallback = ParsedAnswer(raw, emptyList(), null)
         return runCatching {
@@ -282,7 +341,13 @@ class LocalQueryEngine(
             columnDelimiter = columnDelimiter,
         )
 
-    private fun toConversationHistory(history: List<String>): LocalSearchContextBuilder.ConversationHistory? =
+    /**
+         * Create a ConversationHistory from a list of user messages.
+         *
+         * @param history The list of user messages in chronological order.
+         * @return A `ConversationHistory` with each message wrapped as a user `ConversationTurn`, or `null` if `history` is empty.
+         */
+        private fun toConversationHistory(history: List<String>): LocalSearchContextBuilder.ConversationHistory? =
         if (history.isEmpty()) {
             null
         } else {
@@ -310,6 +375,13 @@ class GlobalQueryEngine(
             communityReportEmbeddings.forEach { put(it.communityId, it.vector) }
         }
 
+    /**
+     * Produce an answer for the given question formatted according to the specified response type.
+     *
+     * @param question The user's question to be answered.
+     * @param responseType A descriptor that controls the format or style of the response (for example, a directive like `"short_answer"` or `"json"`).
+     * @return A `QueryResult` containing the generated answer and the context chunks that were used to produce it.
+     */
     suspend fun answer(
         question: String,
         responseType: String,
@@ -320,6 +392,16 @@ class GlobalQueryEngine(
         return QueryResult(answer = answer, context = context)
     }
 
+    /**
+     * Builds a ranked list of community-level context chunks relevant to the provided question.
+     *
+     * Embeds the question, compares it to cached or newly computed embeddings of each community report
+     * using cosine similarity, caches any newly computed report embeddings, excludes reports whose
+     * embeddings could not be obtained, and returns the top-k results sorted by descending score.
+     *
+     * @param question The user query to use when scoring community report relevance.
+     * @return A list of `QueryContextChunk` objects (id, text, score) representing the most relevant
+     * communities, sorted by descending relevance score.
     suspend fun buildContext(question: String): List<QueryContextChunk> {
         val queryEmbedding = embed(question) ?: return emptyList()
         val scored =
@@ -336,6 +418,13 @@ class GlobalQueryEngine(
         return scored
     }
 
+    /**
+     * Builds the system prompt by injecting the provided report context and response type into the reduce-system template.
+     *
+     * @param responseType A short descriptor of the desired response style or intent that will replace `{response_type}` in the template.
+     * @param context A list of QueryContextChunk whose `id` and `text` are formatted as `report_id|summary` rows and inserted into the `{report_data}` placeholder.
+     * @return The completed system prompt string with the report context block, the specified response type, and the `{max_length}` placeholder set to 500.
+     */
     private fun buildPrompt(
         responseType: String,
         context: List<QueryContextChunk>,
@@ -352,7 +441,13 @@ class GlobalQueryEngine(
             .replace("{max_length}", "500")
     }
 
-    private suspend fun embed(text: String): List<Double>? =
+    /**
+         * Compute an embedding vector for the given text.
+         *
+         * @param text The input text to embed.
+         * @return The embedding as a list of `Double`, or `null` if embedding could not be obtained.
+         */
+        private suspend fun embed(text: String): List<Double>? =
         withContext(Dispatchers.IO) {
             runCatching {
                 val response: Response<dev.langchain4j.data.embedding.Embedding> = embeddingModel.embed(text)
@@ -367,11 +462,25 @@ class GlobalQueryEngine(
             }
         }
 
-    private suspend fun generate(prompt: String): String =
+    /**
+         * Obtains a model-generated response for the given prompt.
+         *
+         * If the responder fails or returns null, returns the literal string "No response generated.".
+         *
+         * @return The responder's text reply, or `"No response generated."` when no reply is available.
+         */
+        private suspend fun generate(prompt: String): String =
         withContext(Dispatchers.IO) {
             runCatching { responder.answer(prompt) }.getOrNull() ?: "No response generated."
         }
 
+    /**
+     * Computes the cosine similarity between two numeric vectors.
+     *
+     * @param a First vector (embedding) to compare.
+     * @param b Second vector (embedding) to compare.
+     * @return The cosine similarity in the range [-1.0, 1.0] when both vectors are non-empty, equal-length, and have non-zero magnitude; returns `0.0` if either vector is empty, lengths differ, or either magnitude is zero.
+     */
     private fun cosineSimilarity(
         a: List<Double>,
         b: List<Double>,
@@ -403,6 +512,13 @@ class DriftQueryEngine(
     private val localEngine: LocalQueryEngine,
     private val maxCombinedContext: Int = 8,
 ) {
+    /**
+     * Answers a question by combining global and local contexts, building a prompt, and generating a response.
+     *
+     * @param question The user question to answer.
+     * @param responseType The desired response style or format inserted into the prompt.
+     * @return A [QueryResult] containing the generated answer and the combined, deduplicated, scored context chunks used to produce it.
+     */
     suspend fun answer(
         question: String,
         responseType: String,
@@ -420,6 +536,19 @@ class DriftQueryEngine(
         return QueryResult(answer = answer, context = combined)
     }
 
+    /**
+     * Builds the system prompt for the drift/local hybrid engine by inserting the question,
+     * the response type instruction, and a formatted context block into the DRIFT_LOCAL_SYSTEM_PROMPT.
+     *
+     * The context block is formatted as a table with header `source_id|text` and one row per
+     * `QueryContextChunk` in `context`; each row contains the chunk id and up to 800 characters
+     * of the chunk text.
+     *
+     * @param question The user's query to include in the prompt.
+     * @param responseType An instruction or label describing the desired response style or format.
+     * @param context The list of context chunks to include as source rows in the prompt.
+     * @return The final system prompt string with the question, response type, and formatted context embedded.
+     */
     private fun buildPrompt(
         question: String,
         responseType: String,
@@ -437,7 +566,14 @@ class DriftQueryEngine(
             .replace("{global_query}", question)
     }
 
-    private suspend fun generate(prompt: String): String =
+    /**
+         * Obtains a model-generated response for the given prompt.
+         *
+         * If the responder fails or returns null, returns the literal string "No response generated.".
+         *
+         * @return The responder's text reply, or `"No response generated."` when no reply is available.
+         */
+        private suspend fun generate(prompt: String): String =
         withContext(Dispatchers.IO) {
             runCatching { responder.answer(prompt) }.getOrNull() ?: "No response generated."
         }
@@ -447,6 +583,12 @@ class DriftQueryEngine(
 }
 
 private interface ContextResponder {
+    /**
+     * Produces an answer to the provided user prompt using only the context contained in that prompt.
+     *
+     * @param prompt The user message containing the question and any context the assistant should use.
+     * @return The assistant's answer as a plain string.
+     */
     @SystemMessage("You are a helpful assistant. Answer the question using only the provided context.")
     fun answer(
         @UserMessage prompt: String,

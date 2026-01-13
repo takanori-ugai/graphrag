@@ -16,6 +16,15 @@ class ExtractGraphWorkflow(
     private val extractor =
         AiServices.create(Extractor::class.java, chatModel)
 
+    /**
+     * Extracts entities and relationships from the provided document chunks using the configured extraction model.
+     *
+     * For each chunk this function builds a prompt, invokes the model, parses the structured response, normalizes entity ids
+     * (generating UUIDs when absent), assigns each entity and relationship a sourceChunkId equal to the originating chunk's id,
+     * and resolves relationship endpoints to entity ids when an entity name in the same chunk matches a relationship endpoint.
+     *
+     * @param chunks The list of DocumentChunk objects to analyze; each chunk's id is recorded on entities and relationships produced from that chunk.
+     * @return A GraphExtractResult containing all aggregated entities and relationships extracted from the input chunks.
     suspend fun extract(chunks: List<DocumentChunk>): GraphExtractResult {
         val entities = mutableListOf<Entity>()
         val relationships = mutableListOf<Relationship>()
@@ -102,7 +111,13 @@ class ExtractGraphWorkflow(
         return parts.joinToString("; ").ifBlank { null }
     }
 
-    private fun invokeChat(prompt: String): ModelExtractionResponse? =
+    /**
+         * Sends the given prompt to the extractor and returns the extraction result.
+         *
+         * @param prompt The user message / prompt sent to the extractor.
+         * @return `ModelExtractionResponse` returned by the extractor, or `null` if the extraction failed.
+         */
+        private fun invokeChat(prompt: String): ModelExtractionResponse? =
         runCatching { extractor.extract(prompt) }.getOrElse {
             logger.warn(it) {
                 "Failed to parse extraction response; prompt preview: ${prompt.take(200)}"
@@ -111,6 +126,12 @@ class ExtractGraphWorkflow(
         }
 
     private interface Extractor {
+        /**
+         * Extracts entities and relationships from the given user message according to the extraction instructions.
+         *
+         * @param userMessage The user-facing prompt or document text containing extraction instructions and content to analyze.
+         * @return A `ModelExtractionResponse` containing the extracted entities and relationships; lists may be empty if none are found.
+         */
         @dev.langchain4j.service.SystemMessage(
             "You are an information extraction assistant. Extract entities and relationships exactly as instructed in the user message.",
         )

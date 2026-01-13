@@ -54,6 +54,17 @@ class BasicQueryEngine(
     private val systemPrompt: String = DEFAULT_BASIC_SEARCH_SYSTEM_PROMPT,
     private val encoding: Encoding = Encodings.newLazyEncodingRegistry().getEncoding(EncodingType.CL100K_BASE),
 ) {
+    /**
+     * Generates an answer to the given question using a token-budgeted contextual search and the streaming chat model.
+     *
+     * Builds a contextual prompt from retrieved context chunks, counts tokens, invokes context callbacks, generates a response,
+     * and returns the answer along with the selected context and token/LLM usage metadata.
+     *
+     * @param question The user question to answer.
+     * @param responseType A response-type string inserted into the system prompt to control the style or format of the reply.
+     * @return A [QueryResult] containing the generated answer, the context chunks and records used, follow-up queries (if any),
+     *         and aggregated LLM call and token usage breakdowns.
+     */
     suspend fun answer(
         question: String,
         responseType: String,
@@ -101,7 +112,17 @@ class BasicQueryEngine(
         )
     }
 
-    fun streamAnswer(
+    /**
+         * Streams partial model-generated tokens for a question using the configured system prompt and context.
+         *
+         * Builds a token-budgeted context for the question, notifies callbacks of the context, constructs the final prompt
+         * by injecting the context and response type, and then emits partial response segments as the streaming model produces them.
+         *
+         * @param question The user question to answer.
+         * @param responseType A label inserted into the system prompt that instructs the model how to format the response.
+         * @return A Flow that emits partial response strings (tokens or token groups) as they arrive and closes when the full response is complete or with an error if streaming fails.
+         */
+        fun streamAnswer(
         question: String,
         responseType: String,
     ): Flow<String> =
@@ -135,7 +156,12 @@ class BasicQueryEngine(
             awaitClose {}
         }
 
-    suspend fun buildContext(question: String): List<QueryContextChunk> =
+    /**
+             * Build a token-budgeted set of context chunks relevant to the given question.
+             *
+             * @param question The user question used to retrieve relevant context.
+             * @return A list of QueryContextChunk objects (id, text, score) selected for the question, limited by the configured topK and maxContextTokens. */
+            suspend fun buildContext(question: String): List<QueryContextChunk> =
         contextBuilder
             .buildContext(
                 query = question,
@@ -143,7 +169,14 @@ class BasicQueryEngine(
                 maxContextTokens = maxContextTokens,
             ).contextChunks
 
-    private fun buildPrompt(
+    /**
+             * Builds the final system prompt by substituting the `{context_data}` and `{response_type}` placeholders.
+             *
+             * @param responseType The response type to insert into the `{response_type}` placeholder.
+             * @param context The context text to insert into the `{context_data}` placeholder.
+             * @return The prompt string with the provided context and response type substituted into the template.
+             */
+            private fun buildPrompt(
         responseType: String,
         context: String,
     ): String =
@@ -151,6 +184,14 @@ class BasicQueryEngine(
             .replace("{context_data}", context)
             .replace("{response_type}", responseType)
 
+    /**
+     * Sends the prompt to the streaming chat model, accumulates streamed tokens, and returns the final assembled response.
+     *
+     * The method sends `prompt` to the configured streaming model, collects partial tokens as they arrive, and notifies any registered callbacks of new tokens. If the streaming model fails, a fallback string is returned.
+     *
+     * @param prompt The prompt to send to the streaming chat model.
+     * @return The complete response text assembled from streamed tokens, or the literal `"No response generated."` if generation failed.
+     */
     private suspend fun generate(prompt: String): String {
         val builder = StringBuilder()
         val future = CompletableFuture<String>()

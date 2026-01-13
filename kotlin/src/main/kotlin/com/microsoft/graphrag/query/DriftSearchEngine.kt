@@ -52,6 +52,15 @@ private class DriftSearchState {
     private val seenQueries = mutableSetOf<String>()
     private var nextId = 0
 
+    /**
+     * Adds a primer node to the search state and enqueues its follow-up queries.
+     *
+     * The follow-up queries enqueued are chosen in this order of precedence: the supplied `followUps` list if non-empty, otherwise `primerResult.followUpQueries` if non-empty, otherwise a single follow-up equal to `query`.
+     *
+     * @param query The primer query text.
+     * @param primerResult The result produced for the primer node.
+     * @param followUps Optional explicit follow-up queries to enqueue for this primer.
+     */
     fun addPrimer(
         query: String,
         primerResult: QueryResult,
@@ -63,6 +72,16 @@ private class DriftSearchState {
         enqueueFollowUps(node.id, followUps.ifEmpty { primerResult.followUpQueries.ifEmpty { listOf(query) } })
     }
 
+    /**
+     * Adds cleaned, deduplicated follow-up queries as FOLLOW_UP nodes and enqueues them for processing.
+     *
+     * Trims each follow-up, ignores blank entries, and deduplicates case-insensitively against previously seen queries.
+     * For each new follow-up a DriftNode of type FOLLOW_UP is created with the given parentId, appended to the internal
+     * node list, and its id is added to the pending queue.
+     *
+     * @param parentId The id of the parent node for these follow-ups, or `null` if there is no parent.
+     * @param followUps A list of follow-up query strings to clean, deduplicate, and enqueue.
+     */
     fun enqueueFollowUps(
         parentId: Int?,
         followUps: List<String>,
@@ -80,8 +99,22 @@ private class DriftSearchState {
             }
     }
 
-    fun hasPending(): Boolean = pending.any { id -> findNode(id)?.result == null }
+    /**
+ * Indicates whether there are any pending nodes that have not yet produced a result.
+ *
+ * @return `true` if at least one pending node's result is null, `false` otherwise.
+ */
+fun hasPending(): Boolean = pending.any { id -> findNode(id)?.result == null }
 
+    /**
+     * Dequeues up to `limit` pending action nodes and returns those that still lack results.
+     *
+     * This removes inspected node ids from the internal pending queue; nodes whose `result`
+     * is non-null are skipped and not included in the returned list.
+     *
+     * @param limit Maximum number of pending nodes with null results to return.
+     * @return A list of pending `DriftNode` objects (in queue order) that have no result, up to `limit`.
+     */
     fun nextActions(limit: Int): List<DriftNode> {
         val actions = mutableListOf<DriftNode>()
         while (pending.isNotEmpty() && actions.size < limit) {
@@ -92,6 +125,12 @@ private class DriftSearchState {
         return actions
     }
 
+    /**
+     * Assigns a query result to the given node and enqueues any follow-up queries from that result.
+     *
+     * @param node The node to attach the result to.
+     * @param result The query result whose follow-up queries will be enqueued.
+     */
     fun markResult(
         node: DriftNode,
         result: QueryResult,
@@ -100,8 +139,21 @@ private class DriftSearchState {
         enqueueFollowUps(node.id, result.followUpQueries)
     }
 
-    fun completedResults(): List<QueryResult> = nodes.mapNotNull { it.result }
+    /**
+ * Collects completed query results from all nodes.
+ *
+ * @return A list of `QueryResult` objects for nodes that have a non-null result, in the order the nodes were added.
+ */
+fun completedResults(): List<QueryResult> = nodes.mapNotNull { it.result }
 
+    /**
+     * Builds a textual context of all completed nodes in ascending id order.
+     *
+     * Each completed node is rendered as a block with a header `----<Label> (id=<id>)----`,
+     * followed by `Query: <query>`, an optional `Score: <score>` line if present, and the node answer.
+     *
+     * @return A single string containing all node blocks separated by blank lines.
+     */
     fun contextText(): String {
         val ordered = nodes.filter { it.result != null }.sortedBy { it.id }
         return ordered.joinToString("\n\n") { node ->
@@ -120,6 +172,20 @@ private class DriftSearchState {
         }
     }
 
+    /**
+     * Builds structured records for all nodes, suitable for downstream consumption or telemetry.
+     *
+     * Each record describes a node's id, parent, query text, node type, score, and whether it contributed to the context; includes the node's answer when present.
+     *
+     * @return A map with the key `"actions"` mapping to a list of mutable maps. Each map contains:
+     *  - `"id"`: node id as a string
+     *  - `"parent_id"`: parent id as a string or empty string if none
+     *  - `"query"`: the node's query text
+     *  - `"type"`: node type name in lowercase (`"primer"`, `"follow_up"`, or `"provided"`)
+     *  - `"score"`: node result score as a string or empty string if unavailable
+     *  - `"in_context"`: `"true"` if the node has a result, `"false"` otherwise
+     *  - optional `"answer"`: the node's answer text when a result exists
+     */
     fun contextRecords(): Map<String, List<MutableMap<String, String>>> {
         val actionRecords =
             nodes.map { node ->
@@ -137,7 +203,13 @@ private class DriftSearchState {
         return mapOf("actions" to actionRecords.toMutableList())
     }
 
-    private fun findNode(id: Int): DriftNode? = nodes.firstOrNull { it.id == id }
+    /**
+ * Locate a node by its identifier.
+ *
+ * @param id The node's numeric identifier.
+ * @return The matching [DriftNode], or `null` if no node with the given id exists.
+ */
+private fun findNode(id: Int): DriftNode? = nodes.firstOrNull { it.id == id }
 }
 
 private data class PlannerResult(
@@ -173,6 +245,15 @@ class DriftSearchEngine(
     private val encoding: Encoding = Encodings.newLazyEncodingRegistry().getEncoding(EncodingType.CL100K_BASE),
     private val maxIterations: Int = 3,
 ) {
+    /**
+     * Performs a DRIFT-style search for the given question, producing a final answer, collected action results, and usage accounting.
+     *
+     * Notifies configured callbacks with planner context records, runs a reduction step over accumulated context, and aggregates LLM call and token usage by stage.
+     *
+     * @param question The user question to answer.
+     * @param followUpQueries Optional initial follow-up queries to seed the planner.
+     * @return A DriftSearchResult containing the final answer (or the last action's answer if the reducer is blank), the list of action results, context text and records, and aggregated LLM call and token metrics broken down by stage.
+     */
     suspend fun search(
         question: String,
         followUpQueries: List<String> = emptyList(),
@@ -230,6 +311,13 @@ class DriftSearchEngine(
         )
     }
 
+    /**
+     * Executes the planning phase: runs the primer (with fallback), expands and executes local follow-up queries up to the iteration limit, and assembles planner state and usage totals.
+     *
+     * @param question The main user question driving the primer and local queries.
+     * @param followUpQueries Optional follow-up queries to seed the planner in addition to those produced by the primer.
+     * @return A PlannerResult containing the constructed DriftSearchState, the primer result, collected local results, merged context text and records, and aggregated LLM usage counters (llmCalls, promptTokens, outputTokens).
+     */
     private suspend fun runPlanner(
         question: String,
         followUpQueries: List<String>,
@@ -298,7 +386,15 @@ class DriftSearchEngine(
         )
     }
 
-    fun streamSearch(
+    /**
+         * Streams a DRIFT-style search that first emits completed local action answers and then streams the reduce-phase response.
+         *
+         * Runs planning synchronously, emits each non-blank completed action answer, then starts a streaming reduce prompt and emits partial tokens as they arrive. The flow closes when the reduce response completes and will close with an error if the streaming model reports an error.
+         *
+         * @param question The user's question to answer.
+         * @param followUpQueries Optional initial follow-up queries to seed the planner.
+         * @return A Flow of strings containing emitted completed action answers (if any) followed by partial reduce-phase tokens; the flow completes when the reduce step finishes.
+        fun streamSearch(
         question: String,
         followUpQueries: List<String> = emptyList(),
     ): Flow<String> =
@@ -343,6 +439,13 @@ class DriftSearchEngine(
             awaitClose {}
         }
 
+    /**
+     * Sends a reduce prompt (including provided context and the user question) to the streaming model and returns a QueryResult representing the reduce-phase response.
+     *
+     * @param question The user's question to include in the reduce prompt.
+     * @param contextText The textual context assembled from prior planner/local results to include in the prompt.
+     * @return A QueryResult containing the reduce-phase answer, empty context lists/records, the supplied contextText, and usage counts (llmCalls, promptTokens, outputTokens) categorized under "reduce". The `answer` will be an empty string if the streaming model fails or an error occurs while collecting the response.
+     */
     private fun reduce(
         question: String,
         contextText: String,
@@ -392,6 +495,15 @@ class DriftSearchEngine(
         )
     }
 
+    /**
+     * Produces an initial "primer" result for the given question by consulting community reports and generating
+     * an initial answer, follow-up queries, and usage metrics for the primer stage.
+     *
+     * @param question The user's question to prime the search.
+     * @return A QueryResult containing the primer answer, extracted follow-up queries, optional score,
+     *         text and record-based context derived from community reports, and token/LLM call accounting
+     *         categorized under the "primer" stage.
+     */
     private suspend fun primerSearch(question: String): QueryResult {
         val context = buildPrimerContext()
         val prompt =
@@ -439,6 +551,14 @@ class DriftSearchEngine(
         )
     }
 
+    /**
+     * Builds a compact primer context from the top community reports.
+     *
+     * Produces a text blob concatenating up to `topK` reports (sorted by descending rank) and a list of record maps for all reports indicating whether each was included in the text.
+     *
+     * @param topK Maximum number of highest-ranked reports to include in the returned text; defaults to 5.
+     * @return A [PrimerContext] containing `text` with selected report summaries and `records` where each map contains keys: `"id"`, `"community_id"`, `"title"`, `"rank"`, and `"in_context"` (`"true"` if the report appears in the `text`, otherwise `"false"`).
+     */
     private fun buildPrimerContext(topK: Int = 5): PrimerContext {
         if (communityReports.isEmpty()) return PrimerContext("", emptyList())
         val sorted = communityReports.sortedByDescending { it.rank ?: 0.0 }
@@ -461,6 +581,13 @@ class DriftSearchEngine(
         return PrimerContext(text, records)
     }
 
+    /**
+     * Parses a primer LLM output into its intermediate answer, follow-up queries, and score.
+     *
+     * @param raw The raw primer output (typically JSON).
+     * @param fallback The fallback answer to use when parsing fails or the answer field is missing.
+     * @return A [PrimerParsed] containing the parsed `answer`, `followUps`, and `score`. If parsing fails, returns a `PrimerParsed` with `answer` set to `fallback`, an empty `followUps` list, and `score` set to `null`.
+     */
     private fun parsePrimer(
         raw: String,
         fallback: String,
@@ -489,6 +616,12 @@ class DriftSearchEngine(
         val records: List<MutableMap<String, String>>,
     )
 
+    /**
+     * Obtain a primer QueryResult by delegating to the configured global search engine or returning a default fallback.
+     *
+     * @param question The question used to perform the global search if a global search engine is configured.
+     * @return A QueryResult created from the global search result preserving answer, context records, context text, and usage counters when available; otherwise a QueryResult with the answer "No primer available." and empty context.
+     */
     private suspend fun buildPrimerFallback(question: String): QueryResult {
         val global = globalSearchEngine?.search(question)
         if (global != null) {

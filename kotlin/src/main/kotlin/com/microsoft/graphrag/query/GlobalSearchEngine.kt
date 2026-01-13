@@ -87,7 +87,14 @@ class GlobalSearchEngine(
     private val reduceParams: ModelParams = ModelParams(jsonResponse = false),
     private val encoding: Encoding = Encodings.newLazyEncodingRegistry().getEncoding(EncodingType.CL100K_BASE),
 ) {
-    suspend fun search(
+    /**
+         * Performs a map-reduce search over the configured community reports and returns the aggregated result.
+         *
+         * @param question The user query to search for.
+         * @param conversationHistory Ordered list of previous conversation turns, earliest first, to include as context.
+         * @return A [GlobalSearchResult] containing the final answer, the list of per-chunk map responses, the reduced context text, context records, total LLM call and token counts, and per-phase category breakdowns for build, map, and reduce.
+         */
+        suspend fun search(
         question: String,
         conversationHistory: List<String> = emptyList(),
     ): GlobalSearchResult =
@@ -137,6 +144,18 @@ class GlobalSearchEngine(
             )
         }
 
+    /**
+     * Builds textual context chunks and associated metadata for the given question and conversation history.
+     *
+     * Uses report selection to produce one or more context text chunks (conversation section followed by a table of report rows)
+     * that each respect the configured maximum context token budget, and assembles context records and LLM token/usage totals
+     * for the context-building phase.
+     *
+     * @param question The user's query driving report selection and context construction.
+     * @param conversationHistory Ordered list of prior conversation turns to include in the context.
+     * @return A ContextBuildResult containing the list of context text chunks, a map of context records (reports and conversation),
+     *         and aggregated LLM usage counts (llmCalls, promptTokens, outputTokens) attributable to the context-building step.
+     */
     private suspend fun buildContextChunks(
         question: String,
         conversationHistory: List<String>,
@@ -205,6 +224,20 @@ class GlobalSearchEngine(
         )
     }
 
+    /**
+     * Selects which community reports should be included in the search context.
+     *
+     * When dynamicCommunitySelection is disabled, returns the filtered reports sorted by rank.
+     * When enabled, iteratively rates communities starting from the top level up to dynamicMaxLevel,
+     * includes communities whose rating meets or exceeds dynamicThreshold, and optionally promotes
+     * or removes parents according to dynamicKeepParent. Accumulates per-report rating metadata and
+     * LLM usage metrics incurred during the selection process.
+     *
+     * @param question The user question used to evaluate report relevance; conversationHistory is appended to this.
+     * @param conversationHistory Past conversation turns that are appended to the question for relevance evaluation.
+     * @return A SelectionResult containing the selected reports (sorted by rank), a map of rating context records
+     *         (under the "reports" key when present), and aggregated LLM usage metrics: llmCalls, promptTokens,
+     *         and outputTokens.
     private suspend fun selectReports(
         question: String,
         conversationHistory: List<String>,
@@ -301,6 +334,15 @@ class GlobalSearchEngine(
         )
     }
 
+    /**
+     * Computes the hierarchical depth of a community within the configured communityHierarchy.
+     *
+     * Traverses parent links from the given communityId up to the root (a missing or negative parent)
+     * and returns the number of steps from the community to that root.
+     *
+     * @param communityId The identifier of the community whose level to compute.
+     * @return The number of ancestor links between the community and the root (root communities return 0).
+     */
     private fun levelOf(communityId: Int): Int {
         var current: Int? = communityId
         var level = 0
@@ -313,6 +355,15 @@ class GlobalSearchEngine(
         return level
     }
 
+    /**
+     * Produces a numeric rating for a community report relative to the provided question and returns that rating with token usage metrics.
+     *
+     * Sends the configured rating prompt (possibly repeated) for the report and aggregates the most frequent numeric rating across repeats.
+     *
+     * @param question The user question used to contextualize the rating.
+     * @param report The CommunityReport being rated.
+     * @return A RatingResult containing the report's communityId, the chosen rating (mode of collected ratings, defaulting to 1 if unavailable), and the accumulated prompt and output token counts.
+     */
     private suspend fun rateCommunity(
         question: String,
         report: CommunityReport,
@@ -359,6 +410,11 @@ class GlobalSearchEngine(
         )
     }
 
+    /**
+     * Generates a per-chunk "map" response for the given question using the provided context.
+     *
+     * @return `QueryResult` containing the map-phase answer, minimal context records, and LLM/token usage tallied under the "map" category.
+     */
     private suspend fun mapStep(
         question: String,
         context: String,
@@ -387,6 +443,19 @@ class GlobalSearchEngine(
         )
     }
 
+    /**
+     * Synthesizes a final answer from per-chunk map responses and optional conversation history.
+     *
+     * Builds a reduce prompt from key points extracted from `mapResponses` (keeps points with score > 0 unless
+     * general knowledge is allowed), includes the conversation history, and streams a final reduce answer
+     * while accounting tokens and LLM call counts. If no usable points remain and general knowledge is
+     * disallowed, returns a sentinel `NO_DATA_ANSWER` with zero usage metrics.
+     *
+     * @param question The user question to answer.
+     * @param mapResponses The list of map-phase `QueryResult`s whose extracted points will be considered for reduction.
+     * @param conversationHistory Historical turns to include in the reduce context.
+     * @return A `QueryResult` containing the synthesized answer, the composed reduce context text, and token/LLM usage categorized for the reduce phase (or a `NO_DATA_ANSWER` result with zero usage when no data is usable).
+     */
     private suspend fun reduceStep(
         question: String,
         mapResponses: List<QueryResult>,
@@ -459,6 +528,16 @@ class GlobalSearchEngine(
         )
     }
 
+    /**
+     * Extracts point objects from a JSON response into a list of Point values.
+     *
+     * Parses the top-level JSON for a "points" array and converts each entry with a "description"
+     * string and optional numeric "score" into a Point. Entries missing a description are skipped;
+     * missing or non-numeric scores are treated as 0. If the response is not valid JSON or lacks a
+     * usable "points" array, an empty list is returned.
+     *
+     * @return A list of parsed Point objects, or an empty list if parsing fails or no valid points are found.
+     */
     private fun parsePoints(response: String): List<Point> {
         return runCatching {
             val element = Json.parseToJsonElement(response)
@@ -472,8 +551,24 @@ class GlobalSearchEngine(
         }.getOrElse { emptyList() }
     }
 
-    private fun tokenCount(text: String): Int = encoding.countTokens(text)
+    /**
+ * Count the number of tokens in the given text using the configured encoding.
+ *
+ * @return The number of tokens in the given text.
+ */
+private fun tokenCount(text: String): Int = encoding.countTokens(text)
 
+    /**
+     * Builds a textual conversation section and corresponding context records from a list of history turns.
+     *
+     * Each turn is formatted as "turn|content" in a block prefixed by "-----Conversation-----" and a header row.
+     *
+     * @param history Ordered list of conversation turns (earliest first).
+     * @return A Pair where the first element is the formatted conversation section string and the second element is a list of mutable maps for each turn with keys:
+     * - `"turn"`: turn index (1-based),
+     * - `"content"`: turn text,
+     * - `"in_context"`: `"true"`.
+     */
     private fun buildConversationSection(history: List<String>): Pair<String, List<MutableMap<String, String>>> {
         if (history.isEmpty()) return "" to emptyList()
         val header = "turn|content"
@@ -491,7 +586,14 @@ class GlobalSearchEngine(
         return section to records
     }
 
-    private fun appendConversationHistory(
+    /**
+         * Builds a single text block containing the question followed by conversation turns, each on its own line.
+         *
+         * @param question The user's current question (placed first).
+         * @param history Prior conversation turns; each entry is appended as a separate line after the question.
+         * @return The concatenated text: the question followed by each history entry on its own line, with no trailing newline.
+         */
+        private fun appendConversationHistory(
         question: String,
         history: List<String>,
     ): String =
@@ -504,6 +606,15 @@ class GlobalSearchEngine(
             }.trimEnd()
         }
 
+    /**
+     * Sends a prompt to the streaming model, collects streamed tokens, and returns the full response.
+     *
+     * Streams partial tokens to registered callbacks as they arrive and blocks until the complete
+     * response is available (up to 5 minutes).
+     *
+     * @param prompt The text prompt to send to the streaming model.
+     * @return The concatenated full response produced by the streaming model.
+     */
     private fun streamAnswer(prompt: String): String {
         val builder = StringBuilder()
         val future = CompletableFuture<String>()
@@ -527,7 +638,18 @@ class GlobalSearchEngine(
         return future.get(5, TimeUnit.MINUTES)
     }
 
-    fun streamSearch(
+    /**
+         * Streams the reduce-phase answer for the given question as incremental text chunks produced by the LLM.
+         *
+         * Builds context from the provided conversation history and selected reports, runs the map phase over context
+         * chunks, extracts and composes key points, and then streams the reduce prompt's response tokens as they arrive.
+         *
+         * @param question The user's question to answer.
+         * @param conversationHistory Ordered list of prior conversation turns to include in the context (optional).
+         * @return A Flow<String> that emits partial response strings representing incremental LLM output; the complete answer
+         *         is the concatenation of all emitted chunks, and the flow completes when the reduce response finishes.
+         */
+        fun streamSearch(
         question: String,
         conversationHistory: List<String> = emptyList(),
     ): Flow<String> =

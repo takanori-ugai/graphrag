@@ -52,7 +52,12 @@ class LocalSearchContextBuilder(
     data class ConversationHistory(
         val turns: List<ConversationTurn>,
     ) {
-        fun getUserTurns(maxTurns: Int): List<String> =
+        /**
+                 * Extracts up to the most recent user messages from the conversation.
+                 *
+                 * @param maxTurns The maximum number of user turns to include; if more user turns exist only the most recent `maxTurns` are returned.
+                 * @return A list of user turn contents in chronological order (oldest to newest among the selected turns). If fewer than `maxTurns` user turns exist, returns all user turns.
+                fun getUserTurns(maxTurns: Int): List<String> =
             turns
                 .filter { it.role == ConversationTurn.Role.USER }
                 .takeLast(maxTurns)
@@ -71,6 +76,36 @@ class LocalSearchContextBuilder(
         val outputTokensCategories: Map<String, Int> = emptyMap(),
     )
 
+    /**
+     * Builds a local search context for a query by assembling prioritized sections (conversation history, communities, entities, relationships, claims, covariates, and text sources) within a token budget.
+     *
+     * The builder maps the query to entities (optionally including recent conversation turns), allocates tokens across community, local, and text-source sections according to proportions, and returns the assembled context text, context chunks, and per-section context records and token metrics.
+     *
+     * @param query The user's query used to find relevant entities and text.
+     * @param conversationHistory Optional conversation history to include; used when enriching the query and optionally added as a context section.
+     * @param includeEntityNames Exact entity names to force-include in the mapped entity set (case-insensitive).
+     * @param excludeEntityNames Exact entity names to exclude from the mapped entity set (case-insensitive).
+     * @param conversationHistoryMaxTurns Maximum number of recent turns to consider from conversation history.
+     * @param conversationHistoryUserTurnsOnly If true, only user turns (and associated assistant answers when formatting) are considered when extracting history.
+     * @param conversationHistoryRecencyBias If true, prefers more recent turns when enforcing the max-turn limit.
+     * @param maxContextTokens Total token budget available for the assembled context.
+     * @param textUnitProp Fraction of maxContextTokens reserved for source/text-unit content (0.0–1.0).
+     * @param communityProp Fraction of maxContextTokens reserved for community content (0.0–1.0). Must satisfy communityProp + textUnitProp <= 1.0.
+     * @param topKMappedEntities Max number of entities to retrieve for local context mapping.
+     * @param topKRelationships Max number of relationships to include per selected entities (used as a per-entity budget multiplier in some filters).
+     * @param topKClaims Max number of claims to include.
+     * @param topKCommunities Max number of communities to include.
+     * @param includeCommunityRank If true, includes community rank values in the community section output.
+     * @param includeEntityRank If true, includes entity rank values in the entity section output.
+     * @param includeRelationshipWeight If true, includes relationship weight values in the relationship section output.
+     * @param relationshipRankingAttribute Attribute name used to rank relationships (e.g., "rank", "weight", or a numeric attribute key).
+     * @param useCommunitySummary If true, uses the community summary text when building community sections.
+     * @param minCommunityRank Minimum community rank threshold for including a community report.
+     * @param returnCandidateContext If true, populates contextRecords with candidate items for sections even when not all candidates fit into the final context; marks which candidates were included via the `in_context` flag.
+     * @param contextCallbacks Optional callbacks invoked with the final LocalContextResult before it is returned.
+     *
+     * @return A LocalContextResult containing the assembled context text, selected context chunks, contextRecords broken down by section, and token/LLM metrics for the build operation.
+     */
     @Suppress("LongMethod", "ReturnCount", "LongParameterList", "CyclomaticComplexMethod")
     suspend fun buildContext(
         query: String,
@@ -263,6 +298,22 @@ class LocalSearchContextBuilder(
         return result
     }
 
+    /**
+     * Finds up to `k` entities relevant to `query` by embedding the query and nearest-neighbor lookup,
+     * while forcing inclusion and exclusion by name.
+     *
+     * The function obtains an embedding for `query` and retrieves `k * oversample` nearest entities
+     * from the local vector store, then merges those neighbors with any entities whose names match
+     * `includeEntityNames`. Name matching for both include and exclude lists is case-insensitive.
+     * Results are de-duplicated by entity id, filtered by the exclude list, and truncated to `k`.
+     *
+     * @param query The text query to map to entities.
+     * @param includeEntityNames Entity names that should always be considered for inclusion (case-insensitive).
+     * @param excludeEntityNames Entity names to exclude from the final results (case-insensitive).
+     * @param k The maximum number of entities to return.
+     * @param oversample The multiplier used to fetch extra nearest neighbors (fetches `k * oversample` then narrows).
+     * @return A list of up to `k` matched entities; returns an empty list if the query embedding cannot be obtained.
+     */
     private suspend fun mapQueryToEntities(
         query: String,
         includeEntityNames: List<String>,
@@ -290,6 +341,15 @@ class LocalSearchContextBuilder(
         return merged
     }
 
+    /**
+     * Builds a formatted "Conversation" section from conversation history containing paired user turns and assistant answers.
+     *
+     * @param conversationHistory The conversation history to extract turns from.
+     * @param includeUserOnly When true, include only user turns and omit assistant answers.
+     * @param maxQaTurns Maximum number of user–answer pairs to include (<= 0 means no limit).
+     * @param recencyBias When true, prefer most recent QA pairs first; otherwise preserve original order.
+     * @return The formatted conversation section (including header) or an empty string if there are no rows to include.
+     */
     private fun buildConversationHistorySection(
         conversationHistory: ConversationHistory,
         includeUserOnly: Boolean,
@@ -335,6 +395,24 @@ class LocalSearchContextBuilder(
         val answers: List<ConversationTurn>,
     )
 
+    /**
+     * Builds the "Entities" section text and reports the number of tokens it consumes.
+     *
+     * Builds a delimited table of selected entities (id, name, description, optional rank and attributes),
+     * appending rows until the provided token budget is reached. Populates `contextRecords["entities"]`
+     * with included rows; if `returnCandidateContext` is true, populates that key with candidate records
+     * for all considered entities with an `"in_context"` flag indicating inclusion.
+     *
+     * @param selectedEntities Entities to consider for inclusion in the section.
+     * @param includeEntityRank If true, include a `rank` column in the header and rows.
+     * @param tokenBudget Maximum number of tokens allowed for this section; rows that would exceed the
+     *   budget are omitted.
+     * @param returnCandidateContext If true, write candidate records for all considered entities with
+     *   `"in_context"` set to `"true"` for included rows and `"false"` otherwise.
+     * @param contextRecords Mutable map that will receive the section's record list under the `"entities"` key.
+     * @return A Pair whose first element is the section text (empty string if no rows were added) and whose
+     *   second element is the number of tokens consumed by the returned section.
+     */
     private fun buildEntitySection(
         selectedEntities: List<Entity>,
         includeEntityRank: Boolean,
@@ -400,6 +478,24 @@ class LocalSearchContextBuilder(
         return if (text.isBlank()) "" to 0 else text to tokens
     }
 
+    /**
+     * Builds a formatted "Relationships" section constrained by a token budget and returns the section text and tokens used.
+     *
+     * Populates contextRecords["relationships"] with either the included relationship rows (marked `in_context = true`)
+     * or candidate relationship records (marked `in_context = false` or true depending on inclusion) when `returnCandidateContext`
+     * is set. Respects `tokenBudget` and may return an empty section if no relationships fit or none are available.
+     *
+     * @param selectedEntities Entities considered as the focal set for relationship selection.
+     * @param includeRelationshipWeight If true, include the relationship `weight` column in the output and records.
+     * @param relationshipRankingAttribute Attribute name used to rank relationships when selecting candidates.
+     * @param topK Maximum number of relationships to consider per selected entity for the filtered selection.
+     * @param tokenBudget Maximum allowed tokens for the built section; the function will stop adding rows when exceeded.
+     * @param returnCandidateContext When true, populate `contextRecords["relationships"]` with candidate records and mark which are in-context.
+     * @param contextRecords Mutable map that will be updated with relationship records under the "relationships" key when applicable.
+     * @param selectedIdentifiers Set of entity identifiers used to determine which relationships are relevant.
+     *
+     * @return A Pair whose first element is the formatted relationships section (empty string if none) and whose second element is the token count used.
+     */
     @Suppress("CyclomaticComplexMethod", "ReturnCount")
     private fun buildRelationshipSection(
         selectedEntities: List<Entity>,
@@ -544,6 +640,13 @@ class LocalSearchContextBuilder(
         return if (text.isBlank()) "" to 0 else text to tokens
     }
 
+    /**
+     * Selects and orders relationships relevant to the given set of entity identifiers, preferring links that connect two selected entities and then the highest-priority external links.
+     *
+     * @param selectedIdentifiers The set of entity ids to consider as the focal network.
+     * @param topK Number of external relationships to include per selected entity (total external budget = `topK * selectedIdentifiers.size`).
+     * @param rankingAttribute The attribute name used to score and break ties when ordering relationships (for example `"rank"` or `"weight"`).
+     * @return A list containing all relationships between two selected entities (sorted by ranking), followed by up to `topK * selectedIdentifiers.size` external relationships (sorted by external endpoint connectivity and then by the ranking attribute).
     private fun filterRelationships(
         selectedIdentifiers: Set<String>,
         topK: Int,
@@ -580,6 +683,18 @@ class LocalSearchContextBuilder(
         return inNetwork + sortedOutNetwork.take(relationshipBudget)
     }
 
+    /**
+     * Build the ordered list of column values for a relationship row.
+     *
+     * The returned list contains, in order: short id (or id), source id, target id, type, description,
+     * optionally the weight (when `includeWeight` is true), followed by attribute values in the same
+     * order as `attributeKeys`.
+     *
+     * @param rel The relationship to serialize into row parts.
+     * @param includeWeight If true, include the relationship's weight (empty string if missing).
+     * @param attributeKeys Keys whose corresponding attribute values should be appended in order.
+     * @return A list of string values representing the relationship row columns.
+     */
     private fun relationshipRowParts(
         rel: Relationship,
         includeWeight: Boolean,
@@ -598,7 +713,17 @@ class LocalSearchContextBuilder(
         return rowParts
     }
 
-    private fun buildRelationshipRecord(
+    /**
+         * Builds a mutable record map representing a relationship row, keyed by the provided headers, and marks it with an `in_context` flag.
+         *
+         * @param rel The Relationship to convert into row values.
+         * @param headers The header names that will be used as keys in the resulting map; order must match the row parts produced.
+         * @param includeWeight When true, include the relationship's weight as one of the row parts.
+         * @param attributeKeys Additional relationship attribute keys whose values will be appended to the row parts in order.
+         * @param inContext If true, sets the "in_context" key to "true"; otherwise sets it to "false".
+         * @return A mutable map from header names to string values for the relationship row, with an added "in_context" entry.
+         */
+        private fun buildRelationshipRecord(
         rel: Relationship,
         headers: List<String>,
         includeWeight: Boolean,
@@ -609,6 +734,14 @@ class LocalSearchContextBuilder(
             this["in_context"] = if (inContext) "true" else "false"
         }
 
+    /**
+     * Get the link count for the endpoint of a relationship that lies outside the given set of selected entity IDs.
+     *
+     * @param relationship The relationship whose external endpoint is queried.
+     * @param selectedIds Set of entity IDs considered "selected".
+     * @param linkCounts Map from entity ID to its link count.
+     * @return The link count for the relationship endpoint not in `selectedIds`, or `0` if not present in `linkCounts`.
+     */
     private fun relationshipLinkCount(
         relationship: Relationship,
         selectedIds: Set<String>,
@@ -623,7 +756,14 @@ class LocalSearchContextBuilder(
         return linkCounts[outNetworkEntity] ?: 0
     }
 
-    private fun relationshipRankingValue(
+    /**
+         * Compute a numeric ranking value for a relationship based on the specified ranking attribute.
+         *
+         * @param relationship The relationship whose ranking value is being extracted.
+         * @param rankingAttribute The attribute name to use for ranking; supported values are `"rank"`, `"weight"`, or any key present in the relationship's `attributes` map.
+         * @return The numeric value of the chosen ranking attribute, or `0.0` if the attribute is missing or cannot be parsed as a number.
+         */
+        private fun relationshipRankingValue(
         relationship: Relationship,
         rankingAttribute: String,
     ): Double =
@@ -633,6 +773,16 @@ class LocalSearchContextBuilder(
             else -> relationship.attributes[rankingAttribute]?.toDoubleOrNull() ?: 0.0
         }
 
+    /**
+     * Produces candidate relationships that touch any of the provided entities, ordered by relevance.
+     *
+     * Returns relationships that involve any of the given entities, sorted first by the number of distinct connections
+     * those relationships make to other (non-selected) entities and then by the numeric value of the specified ranking attribute.
+     *
+     * @param selectedEntities Entities used to select and prioritize candidate relationships.
+     * @param rankingAttribute Name of the relationship attribute used as a secondary numeric sort key (higher values rank earlier).
+     * @return A list of relationships touching the selected entities, sorted by (1) link count to non-selected endpoints (descending) and (2) ranking attribute value (descending).
+     */
     private fun sortedRelationshipsForCandidates(
         selectedEntities: List<Entity>,
         rankingAttribute: String,
@@ -658,14 +808,37 @@ class LocalSearchContextBuilder(
         )
     }
 
+    /**
+     * Convert an entity's rank (or a fallback relationship-derived rank) into its string form.
+     *
+     * @param entity The entity whose rank is required.
+     * @return The entity's rank as a string; uses `entity.rank` when present, otherwise the count of relationships involving the entity converted to a string.
+     */
     private fun entityRank(entity: Entity): String {
         val rankValue = entity.rank ?: relationshipCount(entity.id).toDouble()
         return rankValue.toString()
     }
 
-    private fun relationshipCount(entityId: String): Int =
+    /**
+         * Count how many relationships reference the given entity ID as either source or target.
+         *
+         * @param entityId The identifier of the entity to count relationships for.
+         * @return The number of relationships that include the entity as a source or target.
+         */
+        private fun relationshipCount(entityId: String): Int =
         relationships.count { rel -> rel.sourceId == entityId || rel.targetId == entityId }
 
+    /**
+     * Builds the "Claims" section containing claims that reference any of the selected entities, constrained by a token budget.
+     *
+     * @param selectedEntities Entities considered for inclusion (used to short-circuit when empty).
+     * @param tokenBudget Maximum number of tokens allowed for the returned section.
+     * @param topK Maximum number of matching claims to consider.
+     * @param contextRecords Mutable map that will be populated with claim records (key "claims"); records included in the section are marked with `in_context = "true"`. If `returnCandidateContext` is true, this will contain all candidate claims with `in_context` flags set.
+     * @param returnCandidateContext When true, populate `contextRecords["claims"]` with all candidate claims (not only those that fit in the token budget) and mark which were included.
+     * @param selectedIdentifiers Set of entity identifiers used to filter claims by subject or object.
+     * @return Pair of the formatted claims section text and the number of tokens consumed by that section; returns an empty string and 0 if no claims are included.
+     */
     @Suppress("ReturnCount")
     private fun buildClaimSection(
         selectedEntities: List<Entity>,
@@ -738,6 +911,19 @@ class LocalSearchContextBuilder(
         return if (text.isBlank()) "" to 0 else text to tokens
     }
 
+    /**
+     * Builds a covariate section listing covariates for the given selected entities under a token budget.
+     *
+     * The section is formatted with a header row of column names followed by covariate rows until the token budget is exhausted.
+     *
+     * @param covariateType The display name used for the section header and the key under which records are stored in `contextRecords`.
+     * @param covariateList The list of covariates to filter and format.
+     * @param selectedEntities Entities used to select relevant covariates (matched by id or name).
+     * @param tokenBudget Maximum tokens allowed for the produced section; rows that would exceed this budget are omitted.
+     * @param returnCandidateContext If true, `contextRecords` is populated with candidate records for all matching covariates, each annotated with an `in_context` flag.
+     * @param contextRecords Mutable map that will be updated with per-covariate records when any rows are included or when `returnCandidateContext` is true.
+     * @return A pair containing the formatted covariate section text and the token count consumed by that section; returns an empty string and 0 tokens when no covariates are included.
+     */
     @Suppress("ReturnCount", "LongParameterList")
     private fun buildCovariateSection(
         covariateType: String,
@@ -801,6 +987,21 @@ class LocalSearchContextBuilder(
         return if (text.isBlank()) "" to 0 else text to tokens
     }
 
+    /**
+     * Builds a community reports section listing community reports that match the provided entities within a token budget.
+     *
+     * The section contains a header and one row per included community report; matching reports are selected by membership and minimum rank, ordered by number of matched entities and report rank, and truncated when the token budget is reached. When requested, candidate records for all matching reports (with `in_context` flags) are written to `contextRecords["reports"]`.
+     *
+     * @param selectedEntities Entities used to determine which communities match.
+     * @param tokenBudget Maximum number of tokens allowed for the returned section text.
+     * @param useCommunitySummary If true, include each report's summary in the section; otherwise include the full content when available.
+     * @param includeRank If true, append the report rank as a column.
+     * @param minCommunityRank Minimum report rank required for inclusion.
+     * @param topK Maximum number of community reports to consider for inclusion.
+     * @param returnCandidateContext If true, populate `contextRecords["reports"]` with candidate entries for all matching reports and mark which were included (`in_context` = "true"/"false").
+     * @param contextRecords Mutable map that will be updated with per-section record entries under the "reports" key when any candidate or included records exist.
+     * @return A pair where the first element is the formatted reports section (empty string if nothing was included) and the second element is the token count of that section.
+     */
     @Suppress("ReturnCount", "LongParameterList", "UnusedParameter")
     private fun buildCommunitySection(
         selectedEntities: List<Entity>,
@@ -899,6 +1100,25 @@ class LocalSearchContextBuilder(
         return if (text.isBlank()) "" to 0 else text to tokens
     }
 
+    /**
+     * Builds the "Sources" section listing source IDs and text snippets relevant to the provided entities,
+     * constrained by a token budget, and collects corresponding query context chunks and context records.
+     *
+     * The method selects primary text units associated with the given entities (or falls back to text units
+     * linked by entity-related relationships or an embedding-based fallback), formats rows as `source_id|text`,
+     * and includes as many rows as fit within `tokenBudget`. For each included row a QueryContextChunk and a
+     * context record with `in_context = "true"` are produced. If `returnCandidateContext` is true, the
+     * contextRecords entry for "sources" will contain all candidate sources with `in_context` set to `"true"`
+     * for included rows and `"false"` for excluded candidates.
+     *
+     * @param selectedEntities Entities to derive relevant sources from.
+     * @param tokenBudget Maximum allowed token count for the resulting section (header + rows).
+     * @param returnCandidateContext When true, populate `contextRecords["sources"]` with all candidate sources
+     *   and an `in_context` flag indicating which were included in the final section.
+     * @param contextRecords Mutable map that will be updated with source context records under the key "sources".
+     * @return A SourceSection containing the formatted section string (empty if no rows fit) and the list of
+     *   QueryContextChunk objects for each included source.
+     */
     private suspend fun buildSourceSection(
         selectedEntities: List<Entity>,
         tokenBudget: Int,
@@ -980,6 +1200,13 @@ class LocalSearchContextBuilder(
         return if (section.isBlank()) SourceSection("", chunks) else SourceSection(section, chunks)
     }
 
+    /**
+     * Selects text units most relevant to the provided entities, formatted as (sourceId, text) rows that fit within a token budget.
+     *
+     * @param tokenBudget Maximum number of tokens allowed for the assembled source rows (including header).
+     * @param selectedEntities Entities whose names are used to form a query embedding for relevance scoring; when empty, units are treated with equal (zero) relevance.
+     * @return Ordered list of (sourceId, text) pairs representing the selected text units, sorted by descending relevance and truncated to respect the token budget.
+     */
     private suspend fun selectTextContext(
         tokenBudget: Int,
         selectedEntities: List<Entity>,
@@ -1011,7 +1238,12 @@ class LocalSearchContextBuilder(
         return rows
     }
 
-    private suspend fun embed(text: String): List<Double>? =
+    /**
+         * Requests an embedding for the given text from the embedding model.
+         *
+         * @return A list of doubles representing the embedding vector, or `null` if an embedding could not be obtained.
+         */
+        private suspend fun embed(text: String): List<Double>? =
         withContext(Dispatchers.IO) {
             runCatching {
                 val response: Response<dev.langchain4j.data.embedding.Embedding> = embeddingModel.embed(text)
@@ -1020,8 +1252,24 @@ class LocalSearchContextBuilder(
             }.getOrNull()
         }
 
-    private fun tokenCount(text: String): Int = encoding.countTokens(text)
+    /**
+ * Counts the number of tokens in the given text.
+ *
+ * @return The number of tokens in the text.
+ */
+private fun tokenCount(text: String): Int = encoding.countTokens(text)
 
+    /**
+     * Compute the cosine similarity between two numeric vectors.
+     *
+     * Returns a value between -1.0 and 1.0 that measures the directional similarity of the vectors;
+     * 1.0 indicates identical direction, -1.0 indicates opposite direction.
+     * If either input is empty, lengths differ, or either vector has zero magnitude, returns 0.0.
+     *
+     * @param a First vector.
+     * @param b Second vector.
+     * @return Cosine similarity score between `a` and `b`, or 0.0 for invalid or zero-magnitude inputs.
+     */
     private fun cosineSimilarity(
         a: List<Double>,
         b: List<Double>,
@@ -1039,13 +1287,25 @@ class LocalSearchContextBuilder(
         return if (denom == 0.0) 0.0 else dot / denom
     }
 
+    /**
+     * Formats a section block with a delimited title, a header line, and row content.
+     *
+     * @return The concatenated section string in the form:
+     * "-----<title>-----\n<header>\n<rows>"
+     */
     private fun buildSection(
         title: String,
         header: String,
         rows: String,
     ): String = "-----$title-----\n$header\n$rows"
 
-    private fun entityChunk(entity: Entity): QueryContextChunk = QueryContextChunk(id = entity.id, text = entity.name, score = 1.0)
+    /**
+ * Creates a QueryContextChunk representing the given entity for inclusion in query context.
+ *
+ * @param entity The entity to convert into a context chunk.
+ * @return A QueryContextChunk with the entity's id as `id`, the entity's name as `text`, and a score of `1.0`.
+ */
+private fun entityChunk(entity: Entity): QueryContextChunk = QueryContextChunk(id = entity.id, text = entity.name, score = 1.0)
 
     data class SourceSection(
         val section: String,
