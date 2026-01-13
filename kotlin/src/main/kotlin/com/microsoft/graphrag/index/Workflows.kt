@@ -170,14 +170,9 @@ private suspend fun writeOutputs(
     val entities = context.state["entities"] as? List<Entity> ?: emptyList()
     val relationships = context.state["relationships"] as? List<Relationship> ?: emptyList()
     val writer = ParquetWriterHelper()
-    writer.writeEntities(config.outputDir.resolve("entities.parquet"), entities)
-    writer.writeRelationships(config.outputDir.resolve("relationships.parquet"), relationships)
     val textEmbeddings = context.state["text_embeddings"] as? List<TextEmbedding> ?: emptyList()
     val entityEmbeddings = context.state["entity_embeddings"] as? List<EntityEmbedding> ?: emptyList()
-    writer.writeTextEmbeddings(config.outputDir.resolve("text_embeddings.parquet"), textEmbeddings)
-    writer.writeEntityEmbeddings(config.outputDir.resolve("entity_embeddings.parquet"), entityEmbeddings)
     val communities = context.state["communities"] as? List<CommunityAssignment> ?: emptyList()
-    writer.writeCommunityAssignments(config.outputDir.resolve("communities.parquet"), communities)
     val reports = context.state["community_reports"] as? List<CommunityReport> ?: emptyList()
     val claims = context.state["claims"] as? List<Claim> ?: emptyList()
     val textUnits = context.state["text_units"] as? List<TextUnit> ?: emptyList()
@@ -190,18 +185,23 @@ private suspend fun writeOutputs(
                 reports,
             )
     withContext(Dispatchers.IO) {
+        writer.writeEntities(config.outputDir.resolve("entities.parquet"), entities)
+        writer.writeRelationships(config.outputDir.resolve("relationships.parquet"), relationships)
+        writer.writeTextEmbeddings(config.outputDir.resolve("text_embeddings.parquet"), textEmbeddings)
+        writer.writeEntityEmbeddings(config.outputDir.resolve("entity_embeddings.parquet"), entityEmbeddings)
+        writer.writeCommunityAssignments(config.outputDir.resolve("communities.parquet"), communities)
         config.outputDir.resolve("community_reports.json").apply {
             java.nio.file.Files
                 .createDirectories(parent)
             java.nio.file.Files
                 .writeString(this, reportsJson)
         }
+        writer.writeTextUnits(config.outputDir.resolve("text_units.parquet"), textUnits)
+        writer.writeEntitySummaries(config.outputDir.resolve("entity_summaries.parquet"), summaries)
+        writer.writeClaims(config.outputDir.resolve("claims.parquet"), claims)
+        val vectorStore = LocalVectorStore(config.outputDir.resolve("vector_store.json"))
+        vectorStore.save(textEmbeddings, entityEmbeddings)
     }
-    writer.writeTextUnits(config.outputDir.resolve("text_units.parquet"), textUnits)
-    writer.writeEntitySummaries(config.outputDir.resolve("entity_summaries.parquet"), summaries)
-    writer.writeClaims(config.outputDir.resolve("claims.parquet"), claims)
-    val vectorStore = LocalVectorStore(config.outputDir.resolve("vector_store.json"))
-    vectorStore.save(textEmbeddings, entityEmbeddings)
     context.outputStorage.set("outputs_written.txt", "Parquet written at ${Instant.now()}")
     return WorkflowResult(result = "outputs_written")
 }

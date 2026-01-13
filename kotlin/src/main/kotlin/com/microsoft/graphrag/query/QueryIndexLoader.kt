@@ -297,68 +297,18 @@ class QueryIndexLoader(
             }
         }
 
-        val textUnits = partial.textUnits.map { unit -> unit.copy(id = prefix + unit.id, chunkId = prefix + unit.chunkId) }
-        val textEmbeddings = partial.textEmbeddings.map { embedding -> embedding.copy(chunkId = prefix + embedding.chunkId) }
-        val entities =
-            partial.entities.map { entity ->
-                entity.copy(
-                    id = prefix + entity.id,
-                    sourceChunkId = prefix + entity.sourceChunkId,
-                    communityIds = entity.communityIds.mapNotNull { shift(it) },
-                    textUnitIds = entity.textUnitIds.map { prefix + it },
-                    shortId = entity.shortId?.let { prefix + it } ?: prefix + entity.id,
-                )
-            }
-        val entityEmbeddings = partial.entityEmbeddings.map { it.copy(entityId = prefix + it.entityId) }
-        val entitySummaries = partial.entitySummaries.map { it.copy(entityId = prefix + it.entityId) }
-        val relationships =
-            partial.relationships.map { rel ->
-                rel.copy(
-                    sourceId = prefix + rel.sourceId,
-                    targetId = prefix + rel.targetId,
-                    sourceChunkId = prefix + rel.sourceChunkId,
-                    textUnitIds = rel.textUnitIds.map { prefix + it },
-                    id = rel.id?.let { prefix + it },
-                )
-            }
+        val textUnits = prefixTextUnits(partial.textUnits, prefix)
+        val textEmbeddings = prefixTextEmbeddings(partial.textEmbeddings, prefix)
+        val entities = prefixEntities(partial.entities, prefix, shift)
+        val entityEmbeddings = prefixEntityEmbeddings(partial.entityEmbeddings, prefix)
+        val entitySummaries = prefixEntitySummaries(partial.entitySummaries, prefix)
+        val relationships = prefixRelationships(partial.relationships, prefix)
         val claims = partial.claims
-        val covariates =
-            partial.covariates.mapValues { (_, values) ->
-                values.map { cov ->
-                    cov.copy(
-                        id = prefix + cov.id.ifBlank { "${cov.subjectId}-${cov.covariateType}" },
-                        subjectId = prefix + cov.subjectId,
-                    )
-                }
-            }
-        val communities =
-            partial.communities.map { assignment ->
-                val shifted = shift(assignment.communityId) ?: assignment.communityId + communityOffset
-                assignment.copy(
-                    entityId = prefix + assignment.entityId,
-                    communityId = shifted,
-                )
-            }
-        val communityReports =
-            partial.communityReports.map { report ->
-                val shiftedId = shift(report.communityId) ?: (report.communityId + communityOffset)
-                val shiftedParent = shift(report.parentCommunityId)
-                report.copy(
-                    communityId = shiftedId,
-                    parentCommunityId = shiftedParent,
-                    id = report.id?.let { "$prefix$it" },
-                    shortId = report.shortId?.let { "$prefix$it" } ?: "$prefix$shiftedId",
-                    attributes = report.attributes + ("index_name" to safeName),
-                )
-            }
-        val communityReportEmbeddings =
-            partial.communityReportEmbeddings.map { embedding ->
-                embedding.copy(communityId = shift(embedding.communityId) ?: (embedding.communityId + communityOffset))
-            }
-        val communityHierarchy =
-            partial.communityHierarchy
-                .mapKeys { shift(it.key) ?: (it.key + communityOffset) }
-                .mapValues { shift(it.value) ?: (it.value + communityOffset) }
+        val covariates = prefixCovariates(partial.covariates, prefix)
+        val communities = prefixCommunities(partial.communities, prefix, shift, communityOffset)
+        val communityReports = prefixCommunityReports(partial.communityReports, prefix, shift, communityOffset, safeName)
+        val communityReportEmbeddings = prefixCommunityReportEmbeddings(partial.communityReportEmbeddings, shift, communityOffset)
+        val communityHierarchy = shiftCommunityHierarchy(partial.communityHierarchy, shift, communityOffset)
 
         val shiftedPartial =
             PartialIndex(
@@ -439,6 +389,117 @@ class QueryIndexLoader(
         val entityEmbeddings = payload.entityEmbeddings.map { it.copy(entityId = prefix + it.entityId) }
         return Payload(textEmbeddings = textEmbeddings, entityEmbeddings = entityEmbeddings)
     }
+
+    private fun prefixTextUnits(
+        units: List<TextUnit>,
+        prefix: String,
+    ): List<TextUnit> = units.map { unit -> unit.copy(id = prefix + unit.id, chunkId = prefix + unit.chunkId) }
+
+    private fun prefixTextEmbeddings(
+        embeddings: List<TextEmbedding>,
+        prefix: String,
+    ): List<TextEmbedding> = embeddings.map { embedding -> embedding.copy(chunkId = prefix + embedding.chunkId) }
+
+    private fun prefixEntities(
+        entities: List<Entity>,
+        prefix: String,
+        shiftCommunity: (Int?) -> Int?,
+    ): List<Entity> =
+        entities.map { entity ->
+            entity.copy(
+                id = prefix + entity.id,
+                sourceChunkId = prefix + entity.sourceChunkId,
+                communityIds = entity.communityIds.mapNotNull { shiftCommunity(it) },
+                textUnitIds = entity.textUnitIds.map { prefix + it },
+                shortId = entity.shortId?.let { prefix + it } ?: prefix + entity.id,
+            )
+        }
+
+    private fun prefixEntityEmbeddings(
+        embeddings: List<EntityEmbedding>,
+        prefix: String,
+    ): List<EntityEmbedding> = embeddings.map { it.copy(entityId = prefix + it.entityId) }
+
+    private fun prefixEntitySummaries(
+        summaries: List<EntitySummary>,
+        prefix: String,
+    ): List<EntitySummary> = summaries.map { it.copy(entityId = prefix + it.entityId) }
+
+    private fun prefixRelationships(
+        relationships: List<Relationship>,
+        prefix: String,
+    ): List<Relationship> =
+        relationships.map { rel ->
+            rel.copy(
+                sourceId = prefix + rel.sourceId,
+                targetId = prefix + rel.targetId,
+                sourceChunkId = prefix + rel.sourceChunkId,
+                textUnitIds = rel.textUnitIds.map { prefix + it },
+                id = rel.id?.let { prefix + it },
+            )
+        }
+
+    private fun prefixCovariates(
+        covariates: Map<String, List<Covariate>>,
+        prefix: String,
+    ): Map<String, List<Covariate>> =
+        covariates.mapValues { (_, values) ->
+            values.map { cov ->
+                cov.copy(
+                    id = prefix + cov.id.ifBlank { "${cov.subjectId}-${cov.covariateType}" },
+                    subjectId = prefix + cov.subjectId,
+                )
+            }
+        }
+
+    private fun prefixCommunities(
+        communities: List<CommunityAssignment>,
+        prefix: String,
+        shift: (Int?) -> Int?,
+        communityOffset: Int,
+    ): List<CommunityAssignment> =
+        communities.map { assignment ->
+            val shifted = shift(assignment.communityId) ?: assignment.communityId + communityOffset
+            assignment.copy(
+                entityId = prefix + assignment.entityId,
+                communityId = shifted,
+            )
+        }
+
+    private fun prefixCommunityReports(
+        reports: List<CommunityReport>,
+        prefix: String,
+        shift: (Int?) -> Int?,
+        communityOffset: Int,
+        indexName: String,
+    ): List<CommunityReport> =
+        reports.map { report ->
+            val shiftedId = shift(report.communityId) ?: (report.communityId + communityOffset)
+            val shiftedParent = shift(report.parentCommunityId)
+            report.copy(
+                communityId = shiftedId,
+                parentCommunityId = shiftedParent,
+                id = report.id?.let { "$prefix$it" },
+                shortId = report.shortId?.let { "$prefix$it" } ?: "$prefix$shiftedId",
+                attributes = report.attributes + ("index_name" to indexName),
+            )
+        }
+
+    private fun prefixCommunityReportEmbeddings(
+        embeddings: List<CommunityReportEmbedding>,
+        shift: (Int?) -> Int?,
+        communityOffset: Int,
+    ): List<CommunityReportEmbedding> =
+        embeddings.map { embedding ->
+            embedding.copy(communityId = shift(embedding.communityId) ?: (embedding.communityId + communityOffset))
+        }
+
+    private fun shiftCommunityHierarchy(
+        hierarchy: Map<Int, Int>,
+        shift: (Int?) -> Int?,
+        communityOffset: Int,
+    ): Map<Int, Int> =
+        hierarchy.mapKeys { shift(it.key) ?: (it.key + communityOffset) }.mapValues { shift(it.value) ?: (it.value + communityOffset) }
 
     private fun sanitizeName(name: String): String = name.trim().ifBlank { "index" }.replace("\\s+".toRegex(), "_")
 

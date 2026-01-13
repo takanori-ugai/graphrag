@@ -4,10 +4,8 @@ import com.knuddels.jtokkit.Encodings
 import com.knuddels.jtokkit.api.Encoding
 import com.knuddels.jtokkit.api.EncodingType
 import com.microsoft.graphrag.index.CommunityReport
-import com.microsoft.graphrag.index.CommunityReportEmbedding
 import dev.langchain4j.model.chat.response.ChatResponse
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler
-import dev.langchain4j.model.embedding.EmbeddingModel
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -21,6 +19,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeUnit
 import kotlin.math.min
 
 data class GlobalSearchResult(
@@ -65,8 +64,6 @@ private data class RatingResult(
 class GlobalSearchEngine(
     private val streamingModel: OpenAiStreamingChatModel,
     private val communityReports: List<CommunityReport>,
-    communityReportEmbeddings: List<CommunityReportEmbedding> = emptyList(),
-    private val embeddingModel: EmbeddingModel? = null,
     private val communityHierarchy: Map<Int, Int> = emptyMap(),
     private val communityLevel: Int? = null,
     private val dynamicCommunitySelection: Boolean = false,
@@ -527,7 +524,7 @@ class GlobalSearchEngine(
                 }
             },
         )
-        return future.get()
+        return future.get(5, TimeUnit.MINUTES)
     }
 
     fun streamSearch(
@@ -540,10 +537,8 @@ class GlobalSearchEngine(
             callbacks.forEach { it.onMapResponseStart(contextResult.chunks) }
 
             val mapResponses =
-                kotlinx.coroutines.runBlocking {
-                    coroutineScope {
-                        contextResult.chunks.map { chunk -> async { mapStep(question, chunk) } }.awaitAll()
-                    }
+                coroutineScope {
+                    contextResult.chunks.map { chunk -> async { mapStep(question, chunk) } }.awaitAll()
                 }
             callbacks.forEach { it.onMapResponseEnd(mapResponses) }
 

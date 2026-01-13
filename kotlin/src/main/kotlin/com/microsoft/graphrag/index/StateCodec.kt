@@ -234,7 +234,10 @@ object StateCodec {
 
                 "additional_context" -> {
                     if (value is JsonObject) {
-                        val map = value.mapValues { it.value.toString() }
+                        val map =
+                            value.mapValues { entry ->
+                                (entry.value as? JsonPrimitive)?.content ?: entry.value.toString()
+                            }
                         out[key] = map
                     }
                 }

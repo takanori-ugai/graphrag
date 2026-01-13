@@ -897,7 +897,7 @@ class LocalSearchContextBuilder(
         return if (text.isBlank()) "" to 0 else text to tokens
     }
 
-    private fun buildSourceSection(
+    private suspend fun buildSourceSection(
         selectedEntities: List<Entity>,
         tokenBudget: Int,
         returnCandidateContext: Boolean,
@@ -978,15 +978,15 @@ class LocalSearchContextBuilder(
         return if (section.isBlank()) SourceSection("", chunks) else SourceSection(section, chunks)
     }
 
-    private fun selectTextContext(
+    private suspend fun selectTextContext(
         tokenBudget: Int,
         selectedEntities: List<Entity>,
     ): List<Pair<String, String>> {
         val queryEmbedding =
-            if (selectedEntities.isEmpty()) {
-                null
+            if (selectedEntities.isNotEmpty()) {
+                val entityText = selectedEntities.joinToString(" ") { it.name }
+                embed(entityText)
             } else {
-                // If entities exist but no chunks, fall back to cosine against text embeddings
                 null
             }
         val byChunkId = textUnits.associateBy { it.chunkId }

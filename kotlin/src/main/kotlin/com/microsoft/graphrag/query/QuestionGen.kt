@@ -124,26 +124,75 @@ class LocalQuestionGen(
         includeRelationshipWeight: Boolean = false,
     ): Flow<String> =
         callbackFlow {
-            val result =
-                generate(
-                    questionHistory = questionHistory,
-                    contextData = contextData,
-                    questionCount = questionCount,
-                    conversationHistoryMaxTurns = conversationHistoryMaxTurns,
-                    maxContextTokens = maxContextTokens,
-                    textUnitProp = textUnitProp,
-                    communityProp = communityProp,
-                    topKMappedEntities = topKMappedEntities,
-                    topKRelationships = topKRelationships,
-                    topKClaims = topKClaims,
-                    topKCommunities = topKCommunities,
-                    includeCommunityRank = includeCommunityRank,
-                    includeEntityRank = includeEntityRank,
-                    includeRelationshipWeight = includeRelationshipWeight,
-                )
-            callbacks.forEach { it.onContext(result.contextData) }
-            result.response.forEach { trySend(it) }
-            close()
+            val (questionText, conversationHistory) =
+                if (questionHistory.isEmpty()) {
+                    Pair("", null)
+                } else {
+                    val history = questionHistory.dropLast(1).map { ConversationTurn(ConversationTurn.Role.USER, it) }
+                    Pair(questionHistory.last(), ConversationHistory(history))
+                }
+
+            val (finalContextData, contextRecords) =
+                if (contextData == null) {
+                    val result =
+                        contextBuilder.buildContext(
+                            query = questionText,
+                            conversationHistory = conversationHistory,
+                            conversationHistoryMaxTurns = conversationHistoryMaxTurns,
+                            maxContextTokens = maxContextTokens,
+                            textUnitProp = textUnitProp,
+                            communityProp = communityProp,
+                            topKMappedEntities = topKMappedEntities,
+                            topKRelationships = topKRelationships,
+                            topKClaims = topKClaims,
+                            topKCommunities = topKCommunities,
+                            includeCommunityRank = includeCommunityRank,
+                            includeEntityRank = includeEntityRank,
+                            includeRelationshipWeight = includeRelationshipWeight,
+                            returnCandidateContext = true,
+                            contextCallbacks = callbacks.map { cb -> { res -> cb.onContext(res.contextRecords) } },
+                        )
+                    val mutableRecords =
+                        result.contextRecords
+                            .mapValues { entry -> entry.value.toMutableList() }
+                            .toMutableMap()
+                    Pair(result.contextText, mutableRecords)
+                } else {
+                    val records = mutableMapOf<String, MutableList<MutableMap<String, String>>>()
+                    records["context_data"] = mutableListOf(mutableMapOf("text" to contextData, "in_context" to "true"))
+                    Pair(contextData, records)
+                }
+
+            contextRecords["question_context"] =
+                mutableListOf(mutableMapOf("text" to questionText, "in_context" to "true"))
+            callbacks.forEach { it.onContext(contextRecords) }
+
+            val systemPrompt =
+                QUESTION_SYSTEM_PROMPT
+                    .replace("{context_data}", finalContextData)
+                    .replace("{question_count}", questionCount.toString())
+            val fullPrompt = "$systemPrompt\n\nUser question: $questionText"
+
+            val responseBuilder = StringBuilder()
+            model.chat(
+                fullPrompt,
+                object : StreamingChatResponseHandler {
+                    override fun onPartialResponse(partialResponse: String) {
+                        responseBuilder.append(partialResponse)
+                        callbacks.forEach { it.onLLMNewToken(partialResponse) }
+                        trySend(partialResponse)
+                    }
+
+                    override fun onCompleteResponse(response: ChatResponse) {
+                        close()
+                    }
+
+                    override fun onError(error: Throwable) {
+                        close(error)
+                    }
+                },
+            )
+
             awaitClose {}
         }
 

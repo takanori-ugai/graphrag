@@ -418,6 +418,71 @@ class QueryCommand : Runnable {
         val callbackList: List<QueryCallbacks> = listOf(callbacks)
         val filteredReports = filterCommunityReports(indexData.communityReports, indexData.communityHierarchy, communityLevel)
 
+        fun createLocalEngine(callbacks: List<QueryCallbacks>): LocalQueryEngine {
+            val modelConfig = queryConfig.local.chat ?: defaultChat
+            val localParams = modelConfig.params ?: defaultChat.params ?: ModelParams()
+            return LocalQueryEngine(
+                streamingModel = buildStreamingModel(modelConfig),
+                embeddingModel = buildEmbeddingModel(queryConfig.local.embeddingModel),
+                vectorStore = indexData.vectorStore,
+                textUnits = indexData.textUnits,
+                textEmbeddings = indexData.textEmbeddings,
+                entities = indexData.entities,
+                entitySummaries = indexData.entitySummaries,
+                relationships = indexData.relationships,
+                claims = indexData.claims,
+                covariates = indexData.covariates,
+                communities = indexData.communities,
+                communityReports = filteredReports,
+                modelParams = localParams.copy(jsonResponse = localParams.jsonResponse),
+                topKEntities = queryConfig.local.topKEntities,
+                topKRelationships = queryConfig.local.topKRelationships,
+                maxContextTokens = queryConfig.local.maxContextTokens,
+                systemPrompt = queryConfig.local.prompt,
+                textUnitProp = queryConfig.local.textUnitProp,
+                communityProp = queryConfig.local.communityProp,
+                conversationHistoryMaxTurns = queryConfig.local.conversationHistoryMaxTurns,
+                callbacks = callbacks,
+            )
+        }
+
+        fun createGlobalEngine(
+            callbacks: List<QueryCallbacks>,
+            mapParamsOverride: ModelParams? = null,
+            reduceParamsOverride: ModelParams? = null,
+        ): GlobalSearchEngine {
+            val modelConfig = queryConfig.global.chat ?: defaultChat
+            val baseParams = modelConfig.params ?: defaultChat.params ?: ModelParams()
+            val mapParams = mapParamsOverride ?: baseParams.copy(jsonResponse = true)
+            val reduceParams = reduceParamsOverride ?: baseParams.copy(jsonResponse = false)
+            return GlobalSearchEngine(
+                streamingModel = buildStreamingModel(modelConfig),
+                communityReports = filteredReports,
+                communityHierarchy = indexData.communityHierarchy,
+                communityLevel = communityLevel,
+                dynamicCommunitySelection = dynamicCommunitySelection,
+                dynamicThreshold = queryConfig.global.dynamic.threshold,
+                dynamicKeepParent = queryConfig.global.dynamic.keepParent,
+                dynamicNumRepeats = queryConfig.global.dynamic.numRepeats,
+                dynamicUseSummary = queryConfig.global.dynamic.useSummary,
+                dynamicMaxLevel = queryConfig.global.dynamic.maxLevel,
+                callbacks = callbacks,
+                responseType = responseType,
+                allowGeneralKnowledge = queryConfig.global.allowGeneralKnowledge,
+                generalKnowledgeInstruction =
+                    queryConfig.global.knowledgePrompt
+                        ?: GlobalSearchEngine.DEFAULT_GENERAL_KNOWLEDGE_INSTRUCTION,
+                mapSystemPrompt = queryConfig.global.mapPrompt,
+                reduceSystemPrompt = queryConfig.global.reducePrompt,
+                mapMaxLength = queryConfig.global.mapMaxLength,
+                reduceMaxLength = queryConfig.global.reduceMaxLength,
+                maxContextTokens = queryConfig.global.maxContextTokens,
+                maxDataTokens = queryConfig.global.dataMaxTokens,
+                mapParams = mapParams,
+                reduceParams = reduceParams,
+            )
+        }
+
         val result: QueryResult =
             when (selectedMethod) {
                 "basic" -> {
@@ -454,32 +519,7 @@ class QueryCommand : Runnable {
 
                 "local" -> {
                     runBlocking {
-                        val modelConfig = queryConfig.local.chat ?: defaultChat
-                        val localParams = modelConfig.params ?: defaultChat.params ?: ModelParams()
-                        val engine =
-                            LocalQueryEngine(
-                                streamingModel = buildStreamingModel(modelConfig),
-                                embeddingModel = buildEmbeddingModel(queryConfig.local.embeddingModel),
-                                vectorStore = indexData.vectorStore,
-                                textUnits = indexData.textUnits,
-                                textEmbeddings = indexData.textEmbeddings,
-                                entities = indexData.entities,
-                                entitySummaries = indexData.entitySummaries,
-                                relationships = indexData.relationships,
-                                claims = indexData.claims,
-                                covariates = indexData.covariates,
-                                communities = indexData.communities,
-                                communityReports = filteredReports,
-                                modelParams = localParams.copy(jsonResponse = localParams.jsonResponse),
-                                topKEntities = queryConfig.local.topKEntities,
-                                topKRelationships = queryConfig.local.topKRelationships,
-                                maxContextTokens = queryConfig.local.maxContextTokens,
-                                systemPrompt = queryConfig.local.prompt,
-                                textUnitProp = queryConfig.local.textUnitProp,
-                                communityProp = queryConfig.local.communityProp,
-                                conversationHistoryMaxTurns = queryConfig.local.conversationHistoryMaxTurns,
-                                callbacks = callbackList,
-                            )
+                        val engine = createLocalEngine(callbackList)
                         if (streaming) {
                             val builder = StringBuilder()
                             engine.streamAnswer(query, responseType, driftQuery = driftQuery).collect { partial ->
@@ -499,39 +539,7 @@ class QueryCommand : Runnable {
 
                 "global" -> {
                     runBlocking {
-                        val modelConfig = queryConfig.global.chat ?: defaultChat
-                        val baseParams = modelConfig.params ?: defaultChat.params ?: ModelParams()
-                        val mapParams = baseParams.copy(jsonResponse = true)
-                        val reduceParams = baseParams.copy(jsonResponse = false)
-                        val engine =
-                            GlobalSearchEngine(
-                                streamingModel = buildStreamingModel(modelConfig),
-                                communityReports = filteredReports,
-                                communityReportEmbeddings = indexData.communityReportEmbeddings,
-                                embeddingModel = buildEmbeddingModel(queryConfig.global.embeddingModel),
-                                communityHierarchy = indexData.communityHierarchy,
-                                communityLevel = communityLevel,
-                                dynamicCommunitySelection = dynamicCommunitySelection,
-                                dynamicThreshold = queryConfig.global.dynamic.threshold,
-                                dynamicKeepParent = queryConfig.global.dynamic.keepParent,
-                                dynamicNumRepeats = queryConfig.global.dynamic.numRepeats,
-                                dynamicUseSummary = queryConfig.global.dynamic.useSummary,
-                                dynamicMaxLevel = queryConfig.global.dynamic.maxLevel,
-                                callbacks = callbackList,
-                                responseType = responseType,
-                                allowGeneralKnowledge = queryConfig.global.allowGeneralKnowledge,
-                                generalKnowledgeInstruction =
-                                    queryConfig.global.knowledgePrompt
-                                        ?: GlobalSearchEngine.DEFAULT_GENERAL_KNOWLEDGE_INSTRUCTION,
-                                mapSystemPrompt = queryConfig.global.mapPrompt,
-                                reduceSystemPrompt = queryConfig.global.reducePrompt,
-                                mapMaxLength = queryConfig.global.mapMaxLength,
-                                reduceMaxLength = queryConfig.global.reduceMaxLength,
-                                maxContextTokens = queryConfig.global.maxContextTokens,
-                                maxDataTokens = queryConfig.global.dataMaxTokens,
-                                mapParams = mapParams,
-                                reduceParams = reduceParams,
-                            )
+                        val engine = createGlobalEngine(callbackList)
                         if (streaming) {
                             val builder = StringBuilder()
                             engine.streamSearch(query).collect { partial ->
@@ -566,66 +574,8 @@ class QueryCommand : Runnable {
                     runBlocking {
                         val driftCallbacks = CollectingQueryCallbacks()
                         val driftCallbackList: List<QueryCallbacks> = listOf(driftCallbacks)
-                        val localModel = queryConfig.local.chat ?: defaultChat
-                        val localParams = localModel.params ?: defaultChat.params ?: ModelParams()
-                        val localEmbeddingModel = buildEmbeddingModel(queryConfig.local.embeddingModel)
-                        val localEngine =
-                            LocalQueryEngine(
-                                streamingModel = buildStreamingModel(localModel),
-                                embeddingModel = localEmbeddingModel,
-                                vectorStore = indexData.vectorStore,
-                                textUnits = indexData.textUnits,
-                                textEmbeddings = indexData.textEmbeddings,
-                                entities = indexData.entities,
-                                entitySummaries = indexData.entitySummaries,
-                                relationships = indexData.relationships,
-                                claims = indexData.claims,
-                                covariates = indexData.covariates,
-                                communities = indexData.communities,
-                                communityReports = filteredReports,
-                                modelParams = localParams.copy(jsonResponse = localParams.jsonResponse),
-                                topKEntities = queryConfig.local.topKEntities,
-                                topKRelationships = queryConfig.local.topKRelationships,
-                                maxContextTokens = queryConfig.local.maxContextTokens,
-                                systemPrompt = queryConfig.local.prompt,
-                                textUnitProp = queryConfig.local.textUnitProp,
-                                communityProp = queryConfig.local.communityProp,
-                                conversationHistoryMaxTurns = queryConfig.local.conversationHistoryMaxTurns,
-                                callbacks = driftCallbackList,
-                            )
-                        val globalModel = queryConfig.global.chat ?: defaultChat
-                        val globalBaseParams = globalModel.params ?: defaultChat.params ?: ModelParams()
-                        val driftMapParams = globalBaseParams.copy(jsonResponse = true)
-                        val driftReduceParams = globalBaseParams.copy(jsonResponse = false)
-                        val globalEngine =
-                            GlobalSearchEngine(
-                                streamingModel = buildStreamingModel(globalModel),
-                                communityReports = filteredReports,
-                                communityReportEmbeddings = indexData.communityReportEmbeddings,
-                                embeddingModel = buildEmbeddingModel(queryConfig.global.embeddingModel),
-                                communityHierarchy = indexData.communityHierarchy,
-                                communityLevel = communityLevel,
-                                dynamicCommunitySelection = dynamicCommunitySelection,
-                                dynamicThreshold = queryConfig.global.dynamic.threshold,
-                                dynamicKeepParent = queryConfig.global.dynamic.keepParent,
-                                dynamicNumRepeats = queryConfig.global.dynamic.numRepeats,
-                                dynamicUseSummary = queryConfig.global.dynamic.useSummary,
-                                dynamicMaxLevel = queryConfig.global.dynamic.maxLevel,
-                                callbacks = driftCallbackList,
-                                responseType = responseType,
-                                allowGeneralKnowledge = queryConfig.global.allowGeneralKnowledge,
-                                generalKnowledgeInstruction =
-                                    queryConfig.global.knowledgePrompt
-                                        ?: GlobalSearchEngine.DEFAULT_GENERAL_KNOWLEDGE_INSTRUCTION,
-                                mapSystemPrompt = queryConfig.global.mapPrompt,
-                                reduceSystemPrompt = queryConfig.global.reducePrompt,
-                                mapMaxLength = queryConfig.global.mapMaxLength,
-                                reduceMaxLength = queryConfig.global.reduceMaxLength,
-                                maxContextTokens = queryConfig.global.maxContextTokens,
-                                maxDataTokens = queryConfig.global.dataMaxTokens,
-                                mapParams = driftMapParams,
-                                reduceParams = driftReduceParams,
-                            )
+                        val localEngine = createLocalEngine(driftCallbackList)
+                        val globalEngine = createGlobalEngine(driftCallbackList)
                         val driftModel = queryConfig.drift.chat ?: defaultChat
                         if (streaming) {
                             val engine =
@@ -684,8 +634,8 @@ class QueryCommand : Runnable {
                 }
 
                 else -> {
-                    println("Unsupported query method: $method. Use one of: basic, local, global, drift.")
-                    return
+                    System.err.println("Unsupported query method: $method. Use one of: basic, local, global, drift.")
+                    throw CommandLine.ParameterException(CommandLine(this), "Unsupported query method: $method")
                 }
             }
         val finalResult =
