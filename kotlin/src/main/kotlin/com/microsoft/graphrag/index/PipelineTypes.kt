@@ -1,5 +1,6 @@
 package com.microsoft.graphrag.index
 
+import com.microsoft.graphrag.logger.Progress
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import java.nio.file.Path
@@ -37,6 +38,10 @@ interface WorkflowCallbacks {
         name: String,
         result: WorkflowResult,
     )
+
+    fun progress(progress: Progress) {
+        // default no-op
+    }
 }
 
 class NoopWorkflowCallbacks : WorkflowCallbacks {
@@ -48,6 +53,10 @@ class NoopWorkflowCallbacks : WorkflowCallbacks {
         name: String,
         result: WorkflowResult,
     ) {
+        // no-op
+    }
+
+    override fun progress(progress: com.microsoft.graphrag.logger.Progress) {
         // no-op
     }
 }

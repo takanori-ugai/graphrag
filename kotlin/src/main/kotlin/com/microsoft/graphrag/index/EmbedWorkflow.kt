@@ -1,5 +1,7 @@
 package com.microsoft.graphrag.index
 
+import com.microsoft.graphrag.logger.ProgressHandler
+import com.microsoft.graphrag.logger.progressTicker
 import dev.langchain4j.model.embedding.EmbeddingModel
 import dev.langchain4j.model.openai.OpenAiEmbeddingModel
 import dev.langchain4j.model.output.Response
@@ -10,20 +12,38 @@ import kotlinx.coroutines.withContext
 class EmbedWorkflow(
     private val embeddingModel: EmbeddingModel,
 ) {
-    suspend fun embedChunks(chunks: List<DocumentChunk>): List<TextEmbedding> =
+    suspend fun embedChunks(
+        chunks: List<DocumentChunk>,
+        progress: ProgressHandler? = null,
+        description: String = "embed chunks progress: ",
+    ): List<TextEmbedding> =
         withContext(Dispatchers.IO) {
-            chunks.mapNotNull { chunk ->
-                val vector = embed(chunk.text) ?: return@mapNotNull null
-                TextEmbedding(chunkId = chunk.id, vector = vector)
-            }
+            val ticker = progressTicker(progress, chunks.size, description)
+            val results =
+                chunks.mapNotNull { chunk ->
+                    val vector = embed(chunk.text) ?: return@mapNotNull null
+                    ticker()
+                    TextEmbedding(chunkId = chunk.id, vector = vector)
+                }
+            ticker.done()
+            results
         }
 
-    suspend fun embedEntities(entities: List<Entity>): List<EntityEmbedding> =
+    suspend fun embedEntities(
+        entities: List<Entity>,
+        progress: ProgressHandler? = null,
+        description: String = "embed entities progress: ",
+    ): List<EntityEmbedding> =
         withContext(Dispatchers.IO) {
-            entities.mapNotNull { entity ->
-                val vector = embed(entity.name) ?: return@mapNotNull null
-                EntityEmbedding(entityId = entity.id, vector = vector)
-            }
+            val ticker = progressTicker(progress, entities.size, description)
+            val results =
+                entities.mapNotNull { entity ->
+                    val vector = embed(entity.name) ?: return@mapNotNull null
+                    ticker()
+                    EntityEmbedding(entityId = entity.id, vector = vector)
+                }
+            ticker.done()
+            results
         }
 
     private fun embed(text: String): List<Double>? =

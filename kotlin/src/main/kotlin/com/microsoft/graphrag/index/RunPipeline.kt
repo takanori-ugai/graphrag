@@ -1,5 +1,6 @@
 package com.microsoft.graphrag.index
 
+import com.microsoft.graphrag.logger.Progress
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.encodeToString
@@ -81,7 +82,17 @@ suspend fun runPipeline(
         val start = System.nanoTime()
         try {
             dumpJson(context)
-            for ((name, fn) in pipeline.run().filterNot { it.first in stepsToSkip }) {
+            val workflows = pipeline.run().filterNot { it.first in stepsToSkip }.toList()
+            val totalWorkflows = workflows.size
+            for ((idx, pair) in workflows.withIndex()) {
+                val (name, fn) = pair
+                context.callbacks.progress(
+                    Progress(
+                        description = "pipeline ",
+                        totalItems = totalWorkflows,
+                        completedItems = idx,
+                    ),
+                )
                 lastWorkflow = name
                 callbacks.workflowStart(name)
                 val wStart = System.nanoTime()
@@ -100,6 +111,13 @@ suspend fun runPipeline(
                     break
                 }
             }
+            callbacks.progress(
+                Progress(
+                    description = "pipeline ",
+                    totalItems = totalWorkflows,
+                    completedItems = totalWorkflows,
+                ),
+            )
             context.stats.totalRuntime = secondsSince(start)
             dumpJson(context)
         } catch (t: Throwable) {

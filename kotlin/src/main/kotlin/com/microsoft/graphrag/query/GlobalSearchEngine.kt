@@ -85,13 +85,17 @@ class GlobalSearchEngine(
     private val mapMaxLength: Int = 1_000,
     private val reduceMaxLength: Int = 2_000,
     private val maxContextTokens: Int = 8_000,
+    private val maxDataTokens: Int = maxContextTokens,
     private val mapParams: ModelParams = ModelParams(jsonResponse = true),
     private val reduceParams: ModelParams = ModelParams(jsonResponse = false),
     private val encoding: Encoding = Encodings.newLazyEncodingRegistry().getEncoding(EncodingType.CL100K_BASE),
 ) {
-    suspend fun search(question: String): GlobalSearchResult =
+    suspend fun search(
+        question: String,
+        conversationHistory: List<String> = emptyList(),
+    ): GlobalSearchResult =
         coroutineScope {
-            val contextResult = buildContextChunks(question)
+            val contextResult = buildContextChunks(question, conversationHistory)
             callbacks.forEach { it.onContext(contextResult.contextRecords) }
             callbacks.forEach { it.onMapResponseStart(contextResult.chunks) }
 
@@ -101,7 +105,7 @@ class GlobalSearchEngine(
                     .awaitAll()
             callbacks.forEach { it.onMapResponseEnd(mapResponses) }
 
-            val reduceResult = reduceStep(question, mapResponses)
+            val reduceResult = reduceStep(question, mapResponses, conversationHistory)
 
             val llmCallsCategories =
                 mapOf(
@@ -136,14 +140,24 @@ class GlobalSearchEngine(
             )
         }
 
-    private suspend fun buildContextChunks(question: String): ContextBuildResult {
+    private suspend fun buildContextChunks(
+        question: String,
+        conversationHistory: List<String>,
+    ): ContextBuildResult {
         if (communityReports.isEmpty()) return ContextBuildResult(emptyList(), emptyMap(), 0, 0, 0)
-        val selection = selectReports(question)
+        val selection = selectReports(question, conversationHistory)
+        val (conversationSection, conversationRecords) = buildConversationSection(conversationHistory)
         val header = listOf("id", "title", "summary", "rank").joinToString("|")
         val ratingLookup = selection.contextRecords["reports"]?.associateBy { it["id"] ?: "" }.orEmpty()
 
         val chunks = mutableListOf<String>()
-        var current = StringBuilder("-----Reports-----\n$header\n")
+        var current =
+            StringBuilder().apply {
+                if (conversationSection.isNotBlank()) {
+                    append(conversationSection).append("\n\n")
+                }
+                append("-----Reports-----\n$header\n")
+            }
         var tokens = tokenCount(current.toString())
         val records = mutableListOf<MutableMap<String, String>>()
         for (report in selection.reports) {
@@ -176,23 +190,29 @@ class GlobalSearchEngine(
         }
         if (current.isNotEmpty()) chunks += current.toString().trimEnd()
         val contextRecords =
-            if (records.isNotEmpty()) {
-                selection.contextRecords.toMutableMap().apply {
+            selection.contextRecords.toMutableMap().apply {
+                if (records.isNotEmpty()) {
                     this["reports"] = records
                 }
-            } else {
-                selection.contextRecords
+                if (conversationRecords.isNotEmpty()) {
+                    this["conversation"] = conversationRecords.toMutableList()
+                }
             }
+        val chunkTokens = chunks.sumOf { tokenCount(it) }
         return ContextBuildResult(
             chunks = chunks,
             contextRecords = contextRecords,
             llmCalls = selection.llmCalls,
-            promptTokens = selection.promptTokens,
+            promptTokens = selection.promptTokens + chunkTokens,
             outputTokens = selection.outputTokens,
         )
     }
 
-    private suspend fun selectReports(question: String): SelectionResult {
+    private suspend fun selectReports(
+        question: String,
+        conversationHistory: List<String>,
+    ): SelectionResult {
+        val enrichedQuestion = appendConversationHistory(question, conversationHistory)
         val filtered =
             if (communityLevel != null) {
                 communityReports.filter { levelOf(it.communityId) == communityLevel }
@@ -227,7 +247,7 @@ class GlobalSearchEngine(
                         .map { id ->
                             val report = reportsById[id]
                             async {
-                                report?.let { rateCommunity(question, it) }
+                                report?.let { rateCommunity(enrichedQuestion, it) }
                             }
                         }.awaitAll()
                 }.filterNotNull()
@@ -373,7 +393,9 @@ class GlobalSearchEngine(
     private suspend fun reduceStep(
         question: String,
         mapResponses: List<QueryResult>,
+        conversationHistory: List<String>,
     ): QueryResult {
+        val (conversationSection, _) = buildConversationSection(conversationHistory)
         val keyPoints =
             mapResponses
                 .flatMapIndexed { idx, result ->
@@ -399,11 +421,14 @@ class GlobalSearchEngine(
             )
         }
         val buffer = StringBuilder()
-        var tokens = 0
+        var tokens = if (conversationSection.isBlank()) 0 else tokenCount(conversationSection) + tokenCount("\n\n")
+        if (conversationSection.isNotBlank()) {
+            buffer.append(conversationSection).append("\n\n")
+        }
         for (point in sorted) {
             val text = point.description + "\n\n"
             val newTokens = tokenCount(text)
-            if (tokens + newTokens > maxContextTokens) break
+            if (tokens + newTokens > maxDataTokens) break
             buffer.append(text)
             tokens += newTokens
         }
@@ -452,6 +477,36 @@ class GlobalSearchEngine(
 
     private fun tokenCount(text: String): Int = encoding.countTokens(text)
 
+    private fun buildConversationSection(history: List<String>): Pair<String, List<MutableMap<String, String>>> {
+        if (history.isEmpty()) return "" to emptyList()
+        val header = "turn|content"
+        val rows = history.mapIndexed { idx, turn -> "${idx + 1}|$turn" }
+        val section = "-----Conversation-----\n$header\n${rows.joinToString("\n")}"
+        val records =
+            rows.mapIndexed { idx, row ->
+                val parts = row.split("|", limit = 2)
+                mutableMapOf(
+                    "turn" to parts.getOrElse(0) { (idx + 1).toString() },
+                    "content" to parts.getOrElse(1) { "" },
+                    "in_context" to "true",
+                )
+            }
+        return section to records
+    }
+
+    private fun appendConversationHistory(
+        question: String,
+        history: List<String>,
+    ): String =
+        if (history.isEmpty()) {
+            question
+        } else {
+            buildString {
+                appendLine(question)
+                history.forEach { appendLine(it) }
+            }.trimEnd()
+        }
+
     private fun streamAnswer(prompt: String): String {
         val builder = StringBuilder()
         val future = CompletableFuture<String>()
@@ -475,9 +530,12 @@ class GlobalSearchEngine(
         return future.get()
     }
 
-    fun streamSearch(question: String): Flow<String> =
+    fun streamSearch(
+        question: String,
+        conversationHistory: List<String> = emptyList(),
+    ): Flow<String> =
         callbackFlow {
-            val contextResult = buildContextChunks(question)
+            val contextResult = buildContextChunks(question, conversationHistory)
             callbacks.forEach { it.onContext(contextResult.contextRecords) }
             callbacks.forEach { it.onMapResponseStart(contextResult.chunks) }
 
@@ -504,12 +562,16 @@ class GlobalSearchEngine(
                 close()
                 return@callbackFlow
             }
+            val (conversationSection, _) = buildConversationSection(conversationHistory)
             val buffer = StringBuilder()
-            var tokens = 0
+            var tokens = if (conversationSection.isBlank()) 0 else tokenCount(conversationSection) + tokenCount("\n\n")
+            if (conversationSection.isNotBlank()) {
+                buffer.append(conversationSection).append("\n\n")
+            }
             for (point in sorted) {
                 val text = point.description + "\n\n"
                 val newTokens = tokenCount(text)
-                if (tokens + newTokens > maxContextTokens) break
+                if (tokens + newTokens > maxDataTokens) break
                 buffer.append(text)
                 tokens += newTokens
             }
@@ -521,6 +583,8 @@ class GlobalSearchEngine(
                     .replace("{max_length}", reduceMaxLength.toString())
                     .let { prompt ->
                         if (allowGeneralKnowledge) "$prompt\n$generalKnowledgeInstruction" else prompt
+                    }.let { base ->
+                        if (reduceParams.jsonResponse) "$base\nReturn ONLY valid JSON per the schema above." else base
                     }
             callbacks.forEach { it.onReduceResponseStart(contextText) }
             val fullPrompt = "$reducePrompt\n\nUser question: $question"

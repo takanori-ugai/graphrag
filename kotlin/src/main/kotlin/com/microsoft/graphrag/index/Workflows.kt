@@ -91,7 +91,12 @@ private suspend fun embedText(
 ): WorkflowResult {
     val chunks = context.state["chunks"] as? List<DocumentChunk> ?: emptyList()
     val embedder = EmbedWorkflow(defaultEmbeddingModel(openAiApiKey))
-    val textEmbeddings = embedder.embedChunks(chunks)
+    val textEmbeddings =
+        embedder.embedChunks(
+            chunks,
+            progress = { context.callbacks.progress(it) },
+            description = "Text embedding progress: ",
+        )
     context.state["text_embeddings"] = textEmbeddings
     context.outputStorage.set(
         "text_embeddings.txt",
@@ -107,7 +112,12 @@ private suspend fun embedGraph(
 ): WorkflowResult {
     val entities = context.state["entities"] as? List<Entity> ?: emptyList()
     val embedder = EmbedWorkflow(defaultEmbeddingModel(openAiApiKey))
-    val entityEmbeddings = embedder.embedEntities(entities)
+    val entityEmbeddings =
+        embedder.embedEntities(
+            entities,
+            progress = { context.callbacks.progress(it) },
+            description = "Entity embedding progress: ",
+        )
     context.state["entity_embeddings"] = entityEmbeddings
     context.outputStorage.set(
         "graph_embeddings.txt",

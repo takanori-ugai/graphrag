@@ -5,6 +5,8 @@ import com.microsoft.graphrag.index.WorkflowCallbacks
 import com.microsoft.graphrag.index.WorkflowResult
 import com.microsoft.graphrag.index.defaultPipeline
 import com.microsoft.graphrag.index.runPipeline
+import com.microsoft.graphrag.logger.Progress
+import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.runBlocking
 import java.nio.file.Files
 import java.nio.file.Path
@@ -58,13 +60,24 @@ fun main() {
 
 private class LoggingCallbacks : WorkflowCallbacks {
     override fun workflowStart(name: String) {
-        println("Starting workflow: $name")
+        logger.info { "Starting workflow: $name" }
     }
 
     override fun workflowEnd(
         name: String,
         result: WorkflowResult,
     ) {
-        println("Finished workflow: $name (stop=${result.stop})")
+        logger.info { "Finished workflow: $name (stop=${result.stop})" }
+    }
+
+    override fun progress(progress: Progress) {
+        val desc = progress.description ?: "progress"
+        val complete = progress.completedItems ?: 0
+        val total = progress.totalItems ?: 0
+        logger.info { "$desc$complete/$total" }
+    }
+
+    companion object {
+        private val logger = KotlinLogging.logger {}
     }
 }

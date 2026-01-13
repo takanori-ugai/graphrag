@@ -455,6 +455,7 @@ class QueryCommand : Runnable {
                 "local" -> {
                     runBlocking {
                         val modelConfig = queryConfig.local.chat ?: defaultChat
+                        val localParams = modelConfig.params ?: defaultChat.params ?: ModelParams()
                         val engine =
                             LocalQueryEngine(
                                 streamingModel = buildStreamingModel(modelConfig),
@@ -469,7 +470,7 @@ class QueryCommand : Runnable {
                                 covariates = indexData.covariates,
                                 communities = indexData.communities,
                                 communityReports = filteredReports,
-                                modelParams = ModelParams(jsonResponse = false),
+                                modelParams = localParams.copy(jsonResponse = localParams.jsonResponse),
                                 topKEntities = queryConfig.local.topKEntities,
                                 topKRelationships = queryConfig.local.topKRelationships,
                                 maxContextTokens = queryConfig.local.maxContextTokens,
@@ -499,6 +500,9 @@ class QueryCommand : Runnable {
                 "global" -> {
                     runBlocking {
                         val modelConfig = queryConfig.global.chat ?: defaultChat
+                        val baseParams = modelConfig.params ?: defaultChat.params ?: ModelParams()
+                        val mapParams = baseParams.copy(jsonResponse = true)
+                        val reduceParams = baseParams.copy(jsonResponse = false)
                         val engine =
                             GlobalSearchEngine(
                                 streamingModel = buildStreamingModel(modelConfig),
@@ -524,6 +528,9 @@ class QueryCommand : Runnable {
                                 mapMaxLength = queryConfig.global.mapMaxLength,
                                 reduceMaxLength = queryConfig.global.reduceMaxLength,
                                 maxContextTokens = queryConfig.global.maxContextTokens,
+                                maxDataTokens = queryConfig.global.dataMaxTokens,
+                                mapParams = mapParams,
+                                reduceParams = reduceParams,
                             )
                         if (streaming) {
                             val builder = StringBuilder()
@@ -560,6 +567,7 @@ class QueryCommand : Runnable {
                         val driftCallbacks = CollectingQueryCallbacks()
                         val driftCallbackList: List<QueryCallbacks> = listOf(driftCallbacks)
                         val localModel = queryConfig.local.chat ?: defaultChat
+                        val localParams = localModel.params ?: defaultChat.params ?: ModelParams()
                         val localEmbeddingModel = buildEmbeddingModel(queryConfig.local.embeddingModel)
                         val localEngine =
                             LocalQueryEngine(
@@ -575,7 +583,7 @@ class QueryCommand : Runnable {
                                 covariates = indexData.covariates,
                                 communities = indexData.communities,
                                 communityReports = filteredReports,
-                                modelParams = ModelParams(jsonResponse = false),
+                                modelParams = localParams.copy(jsonResponse = localParams.jsonResponse),
                                 topKEntities = queryConfig.local.topKEntities,
                                 topKRelationships = queryConfig.local.topKRelationships,
                                 maxContextTokens = queryConfig.local.maxContextTokens,
@@ -586,6 +594,9 @@ class QueryCommand : Runnable {
                                 callbacks = driftCallbackList,
                             )
                         val globalModel = queryConfig.global.chat ?: defaultChat
+                        val globalBaseParams = globalModel.params ?: defaultChat.params ?: ModelParams()
+                        val driftMapParams = globalBaseParams.copy(jsonResponse = true)
+                        val driftReduceParams = globalBaseParams.copy(jsonResponse = false)
                         val globalEngine =
                             GlobalSearchEngine(
                                 streamingModel = buildStreamingModel(globalModel),
@@ -611,6 +622,9 @@ class QueryCommand : Runnable {
                                 mapMaxLength = queryConfig.global.mapMaxLength,
                                 reduceMaxLength = queryConfig.global.reduceMaxLength,
                                 maxContextTokens = queryConfig.global.maxContextTokens,
+                                maxDataTokens = queryConfig.global.dataMaxTokens,
+                                mapParams = driftMapParams,
+                                reduceParams = driftReduceParams,
                             )
                         val driftModel = queryConfig.drift.chat ?: defaultChat
                         if (streaming) {

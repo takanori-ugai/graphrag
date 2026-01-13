@@ -1,33 +1,3 @@
-Done:  - CLI/config + data loading: Python graphrag/cli/query.py + graphrag/api/query.py load full parquet outputs through
-    storage adapters, honor settings overrides, and support multi-index + callbacks/streaming across all modes. Kotlin
-    src/main/kotlin/com/microsoft/graphrag/cli/GraphRagCli.kt only reads a single folder via QueryIndexLoader and
-    ignores settings; the --streaming flag is a no-op for basic, and there’s no multi-index or callback plumbing.
-Done:  - Index contents: Python query uses all index tables (text_units, entities, relationships, covariates, communities
-    hierarchy, reports, embeddings, stats). Kotlin query/QueryIndexLoader.kt only ingests context.json/
-    vector_store.json; parquet/stats/multi-output support and storage abstraction are absent.
-Done:  - Basic search flow: Python query/structured_search/basic_search/search.py uses a context builder with token
-    budgeting, structured context_records, streaming, and usage metrics. Kotlin query/BasicQueryEngine.kt does a simple
-    nearest-chunk lookup, fixed prompt, no token budgeting beyond a rough word count, no context_records, and no usage/
-    callback reporting.
-Done:  - Local search: Python query/structured_search/local_search/search.py + context_builder mix entities, relationships,
-    covariates, community selection, conversation history trimming/recency bias, drift_query override, rank/weight-aware
-    ordering, and returns metrics/callback events. Kotlin query/AdvancedQueryEngines.kt + LocalSearchContextBuilder.kt
-    cover entities/relationships/claims/covariates but omit rank/weight scoring, candidate-context tagging, token-based
-    trimming nuances, drift_query input on the CLI, and usage/callback metrics parity.
-Done:  - Global search: Python global mode (query/structured_search/global_search/..., dynamic community selection in
-    context_builder/dynamic_community_selection.py) uses map/reduce prompts, hierarchy levels, and optional dynamic
-    selection. Kotlin query/GlobalQueryEngine just re-embeds report summaries and picks top K; no map/reduce pipeline,
-    hierarchy level selection, or dynamic rating path.
-Done:  - DRIFT: Python DRIFT (query/structured_search/drift_search/...) is a multi-step planner with primer expansion,
-    follow-up action graph, mixed local passes, and serialized state. Kotlin query/DriftSearchEngine.kt runs a single-
-    shot merge of global/local context with no planner/actions/state or follow-up execution.
-Done:  - Config-driven query knobs/prompts: Python api/query.py pulls chat/embedding ids, prompt overrides (map/reduce/
-    knowledge/local/basic/drift/question gen), and per-mode limits/concurrency from GraphRagConfig + prompt files. Kotlin
-    QueryConfigLoader/GraphRagCli hardcode model names, prompts, token budgets, and ignore prompt_tune outputs or general
-    knowledge flags.
 Done:  - Multi-index querying: Python multi_index_* APIs keep indexes separate, tolerate missing optional tables, and let
     callers name/index outputs. Kotlin QueryIndexLoader/GraphRagCli merely merge multiple --data dirs into one dataset,
     losing index names and skipping per-index handling for absent covariates/reports/etc.
-Done:  - Dynamic community selection: Python context_builder/dynamic_community_selection.py LLM-rates reports across the
-    hierarchy with thresholds/keep_parent/num_repeats/max_level controls. Kotlin GlobalSearchEngine just cosine-sorts
-    summaries/embeddings when dynamicCommunitySelection=true; no hierarchical traversal, LLM rating, or config knobs.
