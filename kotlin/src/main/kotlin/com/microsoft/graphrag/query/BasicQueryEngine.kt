@@ -24,7 +24,7 @@ data class QueryContextChunk(
 data class QueryResult(
     val answer: String,
     val context: List<QueryContextChunk>,
-    val contextRecords: Map<String, List<MutableMap<String, String>>> = emptyMap(),
+    val contextRecords: Map<String, List<Map<String, String>>> = emptyMap(),
     val contextText: String = "",
     val followUpQueries: List<String> = emptyList(),
     val score: Double? = null,
@@ -90,7 +90,7 @@ class BasicQueryEngine(
         return QueryResult(
             answer = answerText,
             context = contextResult.contextChunks,
-            contextRecords = contextResult.contextRecords,
+            contextRecords = contextResult.contextRecords.toImmutableContextRecords(),
             contextText = contextResult.contextText,
             llmCalls = llmCallsCategories.values.sum(),
             promptTokens = promptTokensCategories.values.sum(),
@@ -224,33 +224,6 @@ Do not include information where the supporting evidence for it is not provided.
 
 {context_data}
 
-
----Goal---
-
-Generate a response of the target length and format that responds to the user's question, summarizing all relevant information in the input data appropriate for the response length and format.
-
-You should use the data provided in the data tables below as the primary context for generating the response.
-
-If you don't know the answer or if the input data tables do not contain sufficient information to provide an answer, just say so. Do not make anything up.
-
-Points supported by data should list their data references as follows:
-
-"This is an example sentence supported by multiple data references [Data: Sources (record ids)]."
-
-Do not list more than 5 record ids in a single reference. Instead, list the top 5 most relevant record ids and add "+more" to indicate that there are more.
-
-For example:
-
-"Person X is the owner of Company Y and subject to many allegations of wrongdoing [Data: Sources (2, 7, 64, 46, 34, +more)]. He is also CEO of company X [Data: Sources (1, 3)]"
-
-where 1, 2, 3, 7, 34, 46, and 64 represent the source id taken from the "source_id" column in the provided tables.
-
-Do not include information where the supporting evidence for it is not provided.
-
-
----Target response length and format---
-
-{response_type}
 
 Add sections and commentary to the response as appropriate for the length and format. Style the response in markdown.
     """.trimIndent()

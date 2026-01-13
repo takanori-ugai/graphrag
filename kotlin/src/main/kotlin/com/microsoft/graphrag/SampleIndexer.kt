@@ -74,7 +74,7 @@ private class LoggingCallbacks : WorkflowCallbacks {
         val desc = progress.description ?: "progress"
         val complete = progress.completedItems ?: 0
         val total = progress.totalItems ?: 0
-        logger.info { "$desc$complete/$total" }
+        logger.info { "$desc: $complete/$total" }
     }
 
     companion object {

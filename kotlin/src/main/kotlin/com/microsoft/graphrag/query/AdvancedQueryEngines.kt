@@ -25,10 +25,12 @@ import dev.langchain4j.model.output.Response
 import dev.langchain4j.service.AiServices
 import dev.langchain4j.service.SystemMessage
 import dev.langchain4j.service.UserMessage
+import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.future.await
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -95,7 +97,7 @@ class LocalQueryEngine(
                 includeEntityRank = true,
                 includeRelationshipWeight = true,
                 returnCandidateContext = true,
-                contextCallbacks = callbacks.map { cb -> { res -> cb.onContext(res.contextRecords) } },
+                contextCallbacks = callbacks.map { cb -> { res -> cb.onContext(res.contextRecords.toMutableContextRecords()) } },
             )
         val promptBase = buildPrompt(responseType, contextResult.contextText, driftQuery)
         val promptWithJson =
@@ -115,7 +117,7 @@ class LocalQueryEngine(
         return QueryResult(
             answer = parsed.answer,
             context = contextResult.contextChunks,
-            contextRecords = contextResult.contextRecords,
+            contextRecords = contextResult.contextRecords.toImmutableContextRecords(),
             followUpQueries = parsed.followUps,
             score = parsed.score,
             llmCalls = contextResult.llmCalls + 1,
@@ -183,7 +185,7 @@ class LocalQueryEngine(
                 }
             },
         )
-        val raw = runCatching { future.get() }.getOrElse { "No response generated." }
+        val raw = runCatching { future.await() }.getOrElse { "No response generated." }
         return parseStructuredAnswer(raw)
     }
 
@@ -210,7 +212,7 @@ class LocalQueryEngine(
                     includeEntityRank = true,
                     includeRelationshipWeight = true,
                     returnCandidateContext = true,
-                    contextCallbacks = callbacks.map { cb -> { res -> cb.onContext(res.contextRecords) } },
+                    contextCallbacks = callbacks.map { cb -> { res -> cb.onContext(res.contextRecords.toMutableContextRecords()) } },
                 )
             val promptBase = buildPrompt(responseType, contextResult.contextText, driftQuery)
             val promptWithJson =
@@ -302,6 +304,7 @@ class GlobalQueryEngine(
     private val topK: Int = 3,
     private val maxContextChars: Int = 1000,
 ) {
+    private val logger = KotlinLogging.logger {}
     private val communityEmbeddingCache =
         mutableMapOf<Int, List<Double>>().apply {
             communityReportEmbeddings.forEach { put(it.communityId, it.vector) }
@@ -358,7 +361,10 @@ class GlobalQueryEngine(
                     ?.vector()
                     ?.asList()
                     ?.map { it.toDouble() }
-            }.getOrNull()
+            }.getOrElse { error ->
+                logger.warn { "Embedding failed for global search ($error)" }
+                null
+            }
         }
 
     private suspend fun generate(prompt: String): String =

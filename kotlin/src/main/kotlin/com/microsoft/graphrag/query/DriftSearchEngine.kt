@@ -28,7 +28,7 @@ data class DriftSearchResult(
     val llmCallsCategories: Map<String, Int>,
     val promptTokensCategories: Map<String, Int>,
     val outputTokensCategories: Map<String, Int>,
-    val contextRecords: Map<String, List<MutableMap<String, String>>> = emptyMap(),
+    val contextRecords: Map<String, List<Map<String, String>>> = emptyMap(),
     val contextText: String = "",
 )
 
@@ -225,7 +225,7 @@ class DriftSearchEngine(
             llmCallsCategories = llmCallsCategories,
             promptTokensCategories = promptTokensCategories,
             outputTokensCategories = outputTokensCategories,
-            contextRecords = planner.contextRecords,
+            contextRecords = planner.contextRecords.toImmutableContextRecords(),
             contextText = planner.contextText,
         )
     }
@@ -239,8 +239,11 @@ class DriftSearchEngine(
         var totalOutputTokens = 0
 
         val primer =
-            runCatching { primerSearch(question) }
-                .getOrElse { buildPrimerFallback(question) }
+            try {
+                primerSearch(question)
+            } catch (error: Exception) {
+                buildPrimerFallback(question)
+            }
         totalLlmCalls += primer.llmCalls
         totalPromptTokens += primer.promptTokens
         totalOutputTokens += primer.outputTokens
@@ -273,7 +276,7 @@ class DriftSearchEngine(
         val contextText = state.contextText()
         val mergedRecords = mutableMapOf<String, MutableList<MutableMap<String, String>>>()
 
-        fun mergeRecords(source: Map<String, List<MutableMap<String, String>>>) {
+        fun mergeRecords(source: Map<String, List<Map<String, String>>>) {
             source.forEach { (key, records) ->
                 val dest = mergedRecords.getOrPut(key) { mutableListOf() }
                 dest += records.map { it.toMutableMap() }
@@ -423,7 +426,7 @@ class DriftSearchEngine(
         return QueryResult(
             answer = parsed.answer,
             context = emptyList(),
-            contextRecords = mapOf("reports" to context.records.toMutableList()),
+            contextRecords = mapOf("reports" to context.records.map { it.toMap() }),
             contextText = context.text,
             followUpQueries = parsed.followUps,
             score = parsed.score,
@@ -486,8 +489,8 @@ class DriftSearchEngine(
         val records: List<MutableMap<String, String>>,
     )
 
-    private fun buildPrimerFallback(question: String): QueryResult {
-        val global = runBlocking { globalSearchEngine?.search(question) }
+    private suspend fun buildPrimerFallback(question: String): QueryResult {
+        val global = globalSearchEngine?.search(question)
         if (global != null) {
             return QueryResult(
                 answer = global.answer,
@@ -572,29 +575,6 @@ class DriftSearchEngine(
             ---Target response length and format---
 
             {response_type}
-
-
-            ---Goal---
-
-            Generate a response of the target length and format that responds to the user's question, summarizing all information in the input reports appropriate for the response length and format, and incorporating any relevant general knowledge while being as specific, accurate and concise as possible.
-
-            If you don't know the answer, just say so. Do not make anything up.
-
-            Points supported by data should list their data references as follows:
-
-            "This is an example sentence supported by multiple data references [Data: <dataset name> (record ids); <dataset name> (record ids)]."
-
-            Do not list more than 5 record ids in a single reference. Instead, list the top 5 most relevant record ids and add "+more" to indicate that there are more.
-
-            For example:
-
-            "Person X is the owner of Company Y and subject to many allegations of wrongdoing [Data: Sources (1, 5, 15)]."
-
-            Do not include information where the supporting evidence for it is not provided.
-
-            If you decide to use general knowledge, you should add a delimiter stating that the information is not supported by the data tables. For example:
-
-            "Person X is the owner of Company Y and subject to many allegations of wrongdoing. [Data: General Knowledge (href)]".
 
             Add sections and commentary to the response as appropriate for the length and format. Style the response in markdown. Now answer the following query using the data above:
             """.trimIndent()

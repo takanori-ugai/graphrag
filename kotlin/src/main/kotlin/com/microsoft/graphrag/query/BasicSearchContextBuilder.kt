@@ -8,6 +8,7 @@ import com.microsoft.graphrag.index.TextEmbedding
 import com.microsoft.graphrag.index.TextUnit
 import dev.langchain4j.model.embedding.EmbeddingModel
 import dev.langchain4j.model.output.Response
+import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.sqrt
@@ -26,6 +27,8 @@ class BasicSearchContextBuilder(
     private val textIdColumn: String = "source_id",
     private val textColumn: String = "text",
 ) {
+    private val logger = KotlinLogging.logger {}
+
     data class BasicContextResult(
         val contextText: String,
         val contextChunks: List<QueryContextChunk>,
@@ -119,7 +122,10 @@ class BasicSearchContextBuilder(
                     .vector()
                     .asList()
                     .map { it.toDouble() }
-            }.getOrNull()
+            }.getOrElse { error ->
+                logger.warn { "Embedding failed for basic search ($error)" }
+                null
+            }
         }
 
     private fun tokenCount(text: String): Int = encoding.countTokens(text)

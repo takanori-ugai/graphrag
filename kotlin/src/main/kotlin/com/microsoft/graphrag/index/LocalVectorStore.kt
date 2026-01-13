@@ -1,5 +1,6 @@
 package com.microsoft.graphrag.index
 
+import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -14,6 +15,7 @@ class LocalVectorStore(
     private val payloadOverride: Payload? = null,
 ) {
     private val json = Json { prettyPrint = true }
+    private val logger = KotlinLogging.logger {}
 
     fun save(
         textEmbeddings: List<TextEmbedding>,
@@ -29,7 +31,10 @@ class LocalVectorStore(
         if (!Files.exists(path)) return null
         return runCatching {
             json.decodeFromString<Payload>(Files.readString(path))
-        }.getOrNull()
+        }.getOrElse { error ->
+            logger.warn { "Failed to load vector store from $path ($error); ignoring stored vectors." }
+            null
+        }
     }
 
     fun nearestEntities(

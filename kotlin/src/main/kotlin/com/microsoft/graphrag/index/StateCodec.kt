@@ -1,5 +1,6 @@
 package com.microsoft.graphrag.index
 
+import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.MapSerializer
@@ -15,6 +16,7 @@ import kotlinx.serialization.json.JsonPrimitive
  * Utility to serialize and deserialize pipeline state snapshots stored in context.json.
  */
 object StateCodec {
+    private val logger = KotlinLogging.logger {}
     val stateSerializer: KSerializer<Map<String, JsonElement>> =
         MapSerializer(String.serializer(), JsonElement.serializer())
 
@@ -103,6 +105,12 @@ object StateCodec {
                                     ListSerializer(EntitySummary.serializer()),
                                     value.filterIsInstance<EntitySummary>(),
                                 )
+                        }
+
+                        else -> {
+                            logger.warn {
+                                "Skipping state key '$key' with unsupported list element type: ${value.firstOrNull()?.javaClass}"
+                            }
                         }
                     }
                 }

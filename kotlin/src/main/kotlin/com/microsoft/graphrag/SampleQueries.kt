@@ -71,11 +71,12 @@ fun main() =
         println(localResult.answer)
 
         // Global
-        val globalResult =
+        val globalEngine =
             GlobalSearchEngine(
                 streamingModel = streamingModel,
                 communityReports = index.communityReports,
-            ).search(question)
+            )
+        val globalResult = globalEngine.search(question)
         println("\n=== GLOBAL ===")
         println(globalResult.answer)
 
@@ -84,11 +85,7 @@ fun main() =
             DriftSearchEngine(
                 streamingModel = streamingModel,
                 communityReports = index.communityReports,
-                globalSearchEngine =
-                    GlobalSearchEngine(
-                        streamingModel = streamingModel,
-                        communityReports = index.communityReports,
-                    ),
+                globalSearchEngine = globalEngine,
                 localQueryEngine = localEngine,
             ).search(question)
         println("\n=== DRIFT ===")

@@ -577,18 +577,18 @@ class QueryCommand : Runnable {
                         val localEngine = createLocalEngine(driftCallbackList)
                         val globalEngine = createGlobalEngine(driftCallbackList)
                         val driftModel = queryConfig.drift.chat ?: defaultChat
+                        val engine =
+                            DriftSearchEngine(
+                                streamingModel = buildStreamingModel(driftModel),
+                                communityReports = filteredReports,
+                                globalSearchEngine = globalEngine,
+                                localQueryEngine = localEngine,
+                                primerSystemPrompt = queryConfig.drift.prompt,
+                                reduceSystemPrompt = queryConfig.drift.reducePrompt,
+                                callbacks = driftCallbackList,
+                                maxIterations = queryConfig.drift.maxIterations,
+                            )
                         if (streaming) {
-                            val engine =
-                                DriftSearchEngine(
-                                    streamingModel = buildStreamingModel(driftModel),
-                                    communityReports = filteredReports,
-                                    globalSearchEngine = globalEngine,
-                                    localQueryEngine = localEngine,
-                                    primerSystemPrompt = queryConfig.drift.prompt,
-                                    reduceSystemPrompt = queryConfig.drift.reducePrompt,
-                                    callbacks = driftCallbackList,
-                                    maxIterations = queryConfig.drift.maxIterations,
-                                )
                             val builder = StringBuilder()
                             engine.streamSearch(query, followUpQueries = driftQuery?.let { listOf(it) } ?: emptyList()).collect { partial ->
                                 print(partial)
@@ -601,17 +601,6 @@ class QueryCommand : Runnable {
                                 contextText = driftCallbacks.reduceContext,
                             )
                         } else {
-                            val engine =
-                                DriftSearchEngine(
-                                    streamingModel = buildStreamingModel(driftModel),
-                                    communityReports = filteredReports,
-                                    globalSearchEngine = globalEngine,
-                                    localQueryEngine = localEngine,
-                                    primerSystemPrompt = queryConfig.drift.prompt,
-                                    reduceSystemPrompt = queryConfig.drift.reducePrompt,
-                                    callbacks = driftCallbackList,
-                                    maxIterations = queryConfig.drift.maxIterations,
-                                )
                             val driftResult =
                                 engine.search(
                                     question = query,
@@ -670,9 +659,9 @@ class QueryCommand : Runnable {
     }
 
     private fun attachIndexNames(
-        contextRecords: Map<String, List<MutableMap<String, String>>>,
+        contextRecords: Map<String, List<Map<String, String>>>,
         lookup: IndexLookup,
-    ): Map<String, List<MutableMap<String, String>>> {
+    ): Map<String, List<Map<String, String>>> {
         if (contextRecords.isEmpty() || lookup.indexNames.size <= 1) return contextRecords
 
         fun findIndex(record: Map<String, String>): String? {
@@ -700,12 +689,8 @@ class QueryCommand : Runnable {
 
         return contextRecords.mapValues { (_, records) ->
             records.map { record ->
-                val indexName = findIndex(record)
-                if (indexName != null) {
-                    record.toMutableMap().apply { this["index_name"] = indexName }
-                } else {
-                    record
-                }
+                val indexName = findIndex(record) ?: return@map record
+                record.toMutableMap().apply { this["index_name"] = indexName }.toMap()
             }
         }
     }
@@ -719,11 +704,21 @@ class QueryCommand : Runnable {
         if (hierarchy.isEmpty()) return reports
         val cache = mutableMapOf<Int, Int>()
 
-        fun depth(id: Int): Int =
-            cache.getOrPut(id) {
-                val parent = hierarchy[id] ?: return@getOrPut 0
-                if (parent < 0) 0 else 1 + depth(parent)
+        fun depth(id: Int): Int {
+            cache[id]?.let { return it }
+            var current = id
+            var d = 0
+            val seen = mutableSetOf<Int>()
+            while (true) {
+                if (!seen.add(current)) break
+                val parent = hierarchy[current] ?: break
+                if (parent < 0) break
+                current = parent
+                d++
             }
+            cache[id] = d
+            return d
+        }
 
         return reports.filter { depth(it.communityId) == level }
     }

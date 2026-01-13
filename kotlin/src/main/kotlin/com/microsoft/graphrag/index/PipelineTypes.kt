@@ -56,7 +56,7 @@ class NoopWorkflowCallbacks : WorkflowCallbacks {
         // no-op
     }
 
-    override fun progress(progress: com.microsoft.graphrag.logger.Progress) {
+    override fun progress(progress: Progress) {
         // no-op
     }
 }

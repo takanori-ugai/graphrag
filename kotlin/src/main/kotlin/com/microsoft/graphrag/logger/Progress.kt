@@ -32,13 +32,16 @@ class ProgressTicker(
     }
 
     fun done() {
-        callback?.invoke(
+        val progress =
             Progress(
                 totalItems = numTotal,
                 completedItems = numTotal,
                 description = description,
-            ),
-        )
+            )
+        if (!progress.description.isNullOrBlank()) {
+            logger.info { "${progress.description}${progress.completedItems}/${progress.totalItems} (done)" }
+        }
+        callback?.invoke(progress)
     }
 
     companion object {

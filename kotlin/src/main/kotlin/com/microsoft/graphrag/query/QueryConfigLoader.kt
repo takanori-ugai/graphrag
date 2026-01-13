@@ -12,6 +12,7 @@ import com.microsoft.graphrag.query.DriftSearchEngine.Companion.DEFAULT_DRIFT_RE
 import com.microsoft.graphrag.query.GlobalSearchEngine.Companion.DEFAULT_GENERAL_KNOWLEDGE_INSTRUCTION
 import com.microsoft.graphrag.query.GlobalSearchEngine.Companion.DEFAULT_MAP_SYSTEM_PROMPT
 import com.microsoft.graphrag.query.GlobalSearchEngine.Companion.DEFAULT_REDUCE_SYSTEM_PROMPT
+import io.github.oshai.kotlinlogging.KotlinLogging
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -90,6 +91,7 @@ data class DriftSearchConfig(
 object QueryConfigLoader {
     private const val DEFAULT_CHAT_ID = "default_chat_model"
     private const val DEFAULT_EMBEDDING_ID = "default_embedding_model"
+    private val logger = KotlinLogging.logger {}
 
     private val mapper: ObjectMapper =
         ObjectMapper(YAMLFactory())
@@ -114,7 +116,7 @@ object QueryConfigLoader {
             runCatching {
                 mapper.readValue(settingsPath.toFile(), RawConfig::class.java)
             }.getOrElse { error ->
-                println("Warning: failed to parse $settingsPath ($error); using default outputs.")
+                logger.warn { "Failed to parse $settingsPath ($error); using default outputs." }
                 val indexes = buildIndexConfigs(resolvedRoot, null, overrideDirs)
                 return defaultConfig(resolvedRoot, indexes)
             }
@@ -339,12 +341,10 @@ object QueryConfigLoader {
             runCatching { root.resolve(path).normalize() }
                 .getOrDefault(Path.of(path).toAbsolutePath().normalize())
         return runCatching { Files.readString(resolved) }.getOrElse { error ->
-            println("Warning: failed to load prompt at $resolved ($error); using default.")
+            logger.warn { "Failed to load prompt at $resolved ($error); using default." }
             fallback
         }
     }
-
-    private fun sanitizeName(name: String): String = name.trim().ifBlank { "index" }.replace("\\s+".toRegex(), "_")
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private data class RawConfig(

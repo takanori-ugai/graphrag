@@ -24,7 +24,8 @@ output:
   type: file
   base_dir: output
 
-outputs: {}
+# outputs: {}
+# Optional multi-output configuration. Uncomment and set when writing to more than one target.
 
 vector_store:
   default:

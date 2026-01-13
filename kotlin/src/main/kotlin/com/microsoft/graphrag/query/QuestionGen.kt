@@ -15,6 +15,7 @@ import dev.langchain4j.model.openai.OpenAiStreamingChatModel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.future.await
 import java.util.concurrent.CompletableFuture
 
 data class QuestionResult(
@@ -76,7 +77,7 @@ class LocalQuestionGen(
                         includeEntityRank = includeEntityRank,
                         includeRelationshipWeight = includeRelationshipWeight,
                         returnCandidateContext = true,
-                        contextCallbacks = callbacks.map { cb -> { res -> cb.onContext(res.contextRecords) } },
+                        contextCallbacks = callbacks.map { cb -> { res -> cb.onContext(res.contextRecords.toMutableContextRecords()) } },
                     )
 
                 Pair(result.contextText, result.contextRecords)
@@ -87,11 +88,13 @@ class LocalQuestionGen(
             }
 
         val systemPrompt =
-            QUESTION_SYSTEM_PROMPT
-                .replace("{context_data}", finalContextData)
-                .replace("{question_count}", questionCount.toString())
+            formatPrompt(
+                contextData = finalContextData,
+                questionCount = questionCount,
+                questionText = questionText,
+            )
 
-        val response = streamingChat("$systemPrompt\n\nUser question: $questionText")
+        val response = streamingChat(systemPrompt)
 
         val completionTime = (System.currentTimeMillis() - startTime) / 1000.0
 
@@ -150,7 +153,10 @@ class LocalQuestionGen(
                             includeEntityRank = includeEntityRank,
                             includeRelationshipWeight = includeRelationshipWeight,
                             returnCandidateContext = true,
-                            contextCallbacks = callbacks.map { cb -> { res -> cb.onContext(res.contextRecords) } },
+                            contextCallbacks =
+                                callbacks.map { cb ->
+                                    { res -> cb.onContext(res.contextRecords.toMutableContextRecords()) }
+                                },
                         )
                     val mutableRecords =
                         result.contextRecords
@@ -167,11 +173,12 @@ class LocalQuestionGen(
                 mutableListOf(mutableMapOf("text" to questionText, "in_context" to "true"))
             callbacks.forEach { it.onContext(contextRecords) }
 
-            val systemPrompt =
-                QUESTION_SYSTEM_PROMPT
-                    .replace("{context_data}", finalContextData)
-                    .replace("{question_count}", questionCount.toString())
-            val fullPrompt = "$systemPrompt\n\nUser question: $questionText"
+            val fullPrompt =
+                formatPrompt(
+                    contextData = finalContextData,
+                    questionCount = questionCount,
+                    questionText = questionText,
+                )
 
             val responseBuilder = StringBuilder()
             model.chat(
@@ -219,6 +226,16 @@ class LocalQuestionGen(
             },
         )
 
-        return future.get()
+        return future.await()
     }
+
+    private fun formatPrompt(
+        contextData: String,
+        questionCount: Int,
+        questionText: String,
+    ): String =
+        QUESTION_SYSTEM_PROMPT
+            .replace("{context_data}", contextData)
+            .replace("{question_count}", questionCount.toString())
+            .let { prompt -> "$prompt\n\nUser question: $questionText" }
 }

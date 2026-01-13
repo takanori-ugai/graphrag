@@ -426,19 +426,13 @@ class LocalSearchContextBuilder(
                 headers.addAll(attributeKeys)
                 val candidateRecords =
                     candidates.map { rel ->
-                        val rowParts =
-                            mutableListOf(
-                                rel.shortId ?: rel.id.orEmpty(),
-                                rel.sourceId,
-                                rel.targetId,
-                                rel.type,
-                                rel.description ?: "",
-                            )
-                        if (includeRelationshipWeight) rowParts += (rel.weight?.toString() ?: "")
-                        attributeKeys.forEach { key -> rowParts += (rel.attributes[key] ?: "") }
-                        val record = headers.zip(rowParts).toMap().toMutableMap()
-                        record["in_context"] = "false"
-                        record
+                        buildRelationshipRecord(
+                            rel = rel,
+                            headers = headers,
+                            includeWeight = includeRelationshipWeight,
+                            attributeKeys = attributeKeys,
+                            inContext = false,
+                        )
                     }
                 contextRecords["relationships"] = candidateRecords.toMutableList()
             }
@@ -460,19 +454,13 @@ class LocalSearchContextBuilder(
                 headers.addAll(attributeKeys)
                 val candidateRecords =
                     candidates.map { rel ->
-                        val rowParts =
-                            mutableListOf(
-                                rel.shortId ?: rel.id.orEmpty(),
-                                rel.sourceId,
-                                rel.targetId,
-                                rel.type,
-                                rel.description ?: "",
-                            )
-                        if (includeRelationshipWeight) rowParts += (rel.weight?.toString() ?: "")
-                        attributeKeys.forEach { key -> rowParts += (rel.attributes[key] ?: "") }
-                        val record = headers.zip(rowParts).toMap().toMutableMap()
-                        record["in_context"] = "false"
-                        record
+                        buildRelationshipRecord(
+                            rel = rel,
+                            headers = headers,
+                            includeWeight = includeRelationshipWeight,
+                            attributeKeys = attributeKeys,
+                            inContext = false,
+                        )
                     }
                 contextRecords["relationships"] = candidateRecords.toMutableList()
             }
@@ -507,19 +495,13 @@ class LocalSearchContextBuilder(
             if (returnCandidateContext) {
                 val candidateRecords =
                     candidateRelationships.map { rel ->
-                        val rowParts =
-                            mutableListOf(
-                                rel.shortId ?: rel.id.orEmpty(),
-                                rel.sourceId,
-                                rel.targetId,
-                                rel.type,
-                                rel.description ?: "",
-                            )
-                        if (includeRelationshipWeight) rowParts += (rel.weight?.toString() ?: "")
-                        attributeKeys.forEach { key -> rowParts += (rel.attributes[key] ?: "") }
-                        val record = headers.zip(rowParts).toMap().toMutableMap()
-                        record["in_context"] = "false"
-                        record
+                        buildRelationshipRecord(
+                            rel = rel,
+                            headers = headers,
+                            includeWeight = includeRelationshipWeight,
+                            attributeKeys = attributeKeys,
+                            inContext = false,
+                        )
                     }
                 contextRecords["relationships"] = candidateRecords.toMutableList()
             }
@@ -527,23 +509,20 @@ class LocalSearchContextBuilder(
         }
 
         for (rel in filtered) {
-            val rowParts =
-                mutableListOf(
-                    rel.shortId ?: rel.id.orEmpty(),
-                    rel.sourceId,
-                    rel.targetId,
-                    rel.type,
-                    rel.description ?: "",
-                )
-            if (includeRelationshipWeight) rowParts += (rel.weight?.toString() ?: "")
-            attributeKeys.forEach { key -> rowParts += (rel.attributes[key] ?: "") }
+            val rowParts = relationshipRowParts(rel, includeRelationshipWeight, attributeKeys)
             val row = rowParts.joinToString(columnDelimiter) + "\n"
             val rowTokens = tokenCount(row)
             if (tokens + rowTokens > tokenBudget) break
             builder.append(row)
             tokens += rowTokens
-            val record = headers.zip(rowParts).toMap().toMutableMap()
-            record["in_context"] = "true"
+            val record =
+                buildRelationshipRecord(
+                    rel = rel,
+                    headers = headers,
+                    includeWeight = includeRelationshipWeight,
+                    attributeKeys = attributeKeys,
+                    inContext = true,
+                )
             includedIds += rel.id ?: rel.shortId.orEmpty()
             records += record
         }
@@ -552,19 +531,13 @@ class LocalSearchContextBuilder(
         if (returnCandidateContext) {
             val candidateRecords =
                 candidateRelationships.map { rel ->
-                    val rowParts =
-                        mutableListOf(
-                            rel.shortId ?: rel.id.orEmpty(),
-                            rel.sourceId,
-                            rel.targetId,
-                            rel.type,
-                            rel.description ?: "",
-                        )
-                    if (includeRelationshipWeight) rowParts += (rel.weight?.toString() ?: "")
-                    attributeKeys.forEach { key -> rowParts += (rel.attributes[key] ?: "") }
-                    val record = headers.zip(rowParts).toMap().toMutableMap()
-                    record["in_context"] = if ((rel.id ?: rel.shortId.orEmpty()) in includedIds) "true" else "false"
-                    record
+                    buildRelationshipRecord(
+                        rel = rel,
+                        headers = headers,
+                        includeWeight = includeRelationshipWeight,
+                        attributeKeys = attributeKeys,
+                        inContext = (rel.id ?: rel.shortId.orEmpty()) in includedIds,
+                    )
                 }
             contextRecords["relationships"] = candidateRecords.toMutableList()
         }
@@ -606,6 +579,35 @@ class LocalSearchContextBuilder(
         val relationshipBudget = topK * selectedIdentifiers.size
         return inNetwork + sortedOutNetwork.take(relationshipBudget)
     }
+
+    private fun relationshipRowParts(
+        rel: Relationship,
+        includeWeight: Boolean,
+        attributeKeys: List<String>,
+    ): List<String> {
+        val rowParts =
+            mutableListOf(
+                rel.shortId ?: rel.id.orEmpty(),
+                rel.sourceId,
+                rel.targetId,
+                rel.type,
+                rel.description ?: "",
+            )
+        if (includeWeight) rowParts += (rel.weight?.toString() ?: "")
+        attributeKeys.forEach { key -> rowParts += (rel.attributes[key] ?: "") }
+        return rowParts
+    }
+
+    private fun buildRelationshipRecord(
+        rel: Relationship,
+        headers: List<String>,
+        includeWeight: Boolean,
+        attributeKeys: List<String>,
+        inContext: Boolean,
+    ): MutableMap<String, String> =
+        headers.zip(relationshipRowParts(rel, includeWeight, attributeKeys)).toMap().toMutableMap().apply {
+            this["in_context"] = if (inContext) "true" else "false"
+        }
 
     private fun relationshipLinkCount(
         relationship: Relationship,

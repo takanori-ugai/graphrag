@@ -14,6 +14,7 @@ import com.microsoft.graphrag.index.Relationship
 import com.microsoft.graphrag.index.StateCodec
 import com.microsoft.graphrag.index.TextEmbedding
 import com.microsoft.graphrag.index.TextUnit
+import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
@@ -67,6 +68,7 @@ class QueryIndexLoader(
     constructor(outputDir: Path) : this(listOf(QueryIndexConfig("output", outputDir)))
 
     private val json = Json { ignoreUnknownKeys = true }
+    private val logger = KotlinLogging.logger {}
 
     fun load(): QueryIndexData {
         val resolvedOutputs = resolveOutputs(outputDirs)
@@ -120,33 +122,27 @@ class QueryIndexLoader(
     private fun loadOutput(outputDir: QueryIndexConfig): PartialIndex {
         val state = readContextState(outputDir.path)
 
-        val textUnits = loadTextUnits(outputDir.path).ifEmpty { state["text_units"] as? List<TextUnit> ?: emptyList() }
+        val textUnits = loadTextUnits(outputDir.path).ifEmpty { stateList<TextUnit>(state, "text_units") }
         val textEmbeddings =
-            loadTextEmbeddings(outputDir.path).ifEmpty { state["text_embeddings"] as? List<TextEmbedding> ?: emptyList() }
-        val entities = loadEntities(outputDir.path).ifEmpty { state["entities"] as? List<Entity> ?: emptyList() }
-        val entityEmbeddings =
-            loadEntityEmbeddings(outputDir.path).ifEmpty {
-                state["entity_embeddings"] as? List<EntityEmbedding> ?: emptyList()
-            }
-        val entitySummaries =
-            loadEntitySummaries(outputDir.path).ifEmpty { state["entity_summaries"] as? List<EntitySummary> ?: emptyList() }
-        val relationships =
-            loadRelationships(outputDir.path).ifEmpty { state["relationships"] as? List<Relationship> ?: emptyList() }
-        val claims = loadClaims(outputDir.path).ifEmpty { state["claims"] as? List<Claim> ?: emptyList() }
+            loadTextEmbeddings(outputDir.path).ifEmpty { stateList<TextEmbedding>(state, "text_embeddings") }
+        val entities = loadEntities(outputDir.path).ifEmpty { stateList<Entity>(state, "entities") }
+        val entityEmbeddings = loadEntityEmbeddings(outputDir.path).ifEmpty { stateList<EntityEmbedding>(state, "entity_embeddings") }
+        val entitySummaries = loadEntitySummaries(outputDir.path).ifEmpty { stateList<EntitySummary>(state, "entity_summaries") }
+        val relationships = loadRelationships(outputDir.path).ifEmpty { stateList<Relationship>(state, "relationships") }
+        val claims = loadClaims(outputDir.path).ifEmpty { stateList<Claim>(state, "claims") }
         val covariates = loadCovariates(outputDir.path, state)
         val communities =
             loadCommunityAssignments(outputDir.path)
-                .ifEmpty { state["communities"] as? List<CommunityAssignment> ?: emptyList() }
+                .ifEmpty { stateList<CommunityAssignment>(state, "communities") }
         val communityReports =
             loadCommunityReports(outputDir.path)
-                .ifEmpty { state["community_reports"] as? List<CommunityReport> ?: emptyList() }
+                .ifEmpty { stateList<CommunityReport>(state, "community_reports") }
         val communityReportEmbeddings =
             loadCommunityReportEmbeddings(outputDir.path).ifEmpty {
-                state["community_report_embeddings"] as? List<CommunityReportEmbedding> ?: emptyList()
+                stateList<CommunityReportEmbedding>(state, "community_report_embeddings")
             }
         val communityHierarchy =
-            loadCommunityHierarchy(outputDir.path)
-                ?: (state["community_hierarchy"] as? Map<Int, Int> ?: emptyMap())
+            loadCommunityHierarchy(outputDir.path) ?: stateIntMap(state, "community_hierarchy")
         val stats = loadStats(outputDir.path)
         val vectorStorePath = outputDir.path.resolve("vector_store.json")
         val vectorPayload = LocalVectorStore(vectorStorePath).load()
@@ -501,8 +497,6 @@ class QueryIndexLoader(
     ): Map<Int, Int> =
         hierarchy.mapKeys { shift(it.key) ?: (it.key + communityOffset) }.mapValues { shift(it.value) ?: (it.value + communityOffset) }
 
-    private fun sanitizeName(name: String): String = name.trim().ifBlank { "index" }.replace("\\s+".toRegex(), "_")
-
     private fun mergeCovariates(partials: List<PartialIndex>): Map<String, List<Covariate>> {
         val grouped = linkedMapOf<String, MutableMap<String, Covariate>>()
         partials.forEach { partial ->
@@ -532,6 +526,44 @@ class QueryIndexLoader(
         val statsPath = outputDir.resolve("stats.json")
         if (!Files.exists(statsPath)) return null
         return runCatching { json.decodeFromString(IndexStats.serializer(), Files.readString(statsPath)) }.getOrNull()
+    }
+
+    private inline fun <reified T> stateList(
+        state: Map<String, Any?>,
+        key: String,
+    ): List<T> {
+        val value = state[key] ?: return emptyList()
+        if (value !is List<*>) {
+            logger.warn { "State key '$key' expected List<${T::class.simpleName}> but was ${value::class.simpleName}" }
+            return emptyList()
+        }
+        val typed = value.filterIsInstance<T>()
+        if (typed.size != value.size) {
+            logger.warn { "State key '$key' contains mixed types; kept ${typed.size} of ${value.size} entries" }
+        }
+        return typed
+    }
+
+    private fun stateIntMap(
+        state: Map<String, Any?>,
+        key: String,
+    ): Map<Int, Int> {
+        val value = state[key] ?: return emptyMap()
+        val map =
+            value as? Map<*, *> ?: run {
+                logger.warn { "State key '$key' expected Map<Int, Int> but was ${value::class.simpleName}" }
+                return emptyMap()
+            }
+        val typed =
+            map.mapNotNull { (k, v) ->
+                val keyInt = (k as? Number)?.toInt() ?: return@mapNotNull null
+                val valInt = (v as? Number)?.toInt() ?: return@mapNotNull null
+                keyInt to valInt
+            }
+        if (typed.size != map.size) {
+            logger.warn { "State key '$key' contains non-integer entries; kept ${typed.size} of ${map.size} pairs" }
+        }
+        return typed.toMap()
     }
 
     private fun loadCommunityHierarchy(outputDir: Path): Map<Int, Int>? {
@@ -758,7 +790,10 @@ class QueryIndexLoader(
                     .mapNotNull { runCatching { parser(it) }.getOrNull() }
                     .toList()
             }
-        }.getOrDefault(emptyList())
+        }.getOrElse { error ->
+            logger.warn { "Failed to read Parquet file at $path ($error)" }
+            emptyList()
+        }
     }
 
     private fun Group.string(vararg candidates: String): String? =
