@@ -23,12 +23,14 @@ object StateCodec {
     /**
      * Encode a pipeline state snapshot into a JSON-compatible map of `JsonElement` values.
      *
-     * The input map may contain heterogeneous values; supported entries are converted to JSON elements and unknown or non-serializable entries are omitted.
+     * The input map may contain heterogeneous values; supported entries are converted to JSON elements and
+     * unknown or non-serializable entries are omitted.
      *
      * @param state Map of state keys to values. Supported value types:
      *  - `null` (encoded as `JsonNull`)
      *  - Lists where all elements are one of: `DocumentChunk`, `TextUnit`, `Entity`, `Relationship`, `Claim`,
-     *    `TextEmbedding`, `EntityEmbedding`, `CommunityReportEmbedding`, `CommunityAssignment`, `CommunityReport`, `EntitySummary`
+     * `TextEmbedding`, `EntityEmbedding`, `CommunityReportEmbedding`, `CommunityAssignment`, `CommunityReport`,
+     * `EntitySummary`
      *  - Maps of `Int`→`Int` or `String`→`String`
      *  - `String`, `Number`, `Boolean`
      * @return A map with the same keys and `JsonElement` values for supported entries; unsupported entries are omitted.
@@ -163,11 +165,14 @@ object StateCodec {
      * Reconstructs a typed pipeline state map from a JSON-ready map of `JsonElement` values.
      *
      * Decodes supported keys into their concrete Kotlin types (for example, `"chunks"` → `List<DocumentChunk>`,
-     * `"entities"` → `List<Entity>`, `"covariates"` → `Map<String, List<Covariate>>`, `"community_hierarchy"` → `Map<Int, Int>`,
+     * `"entities"` → `List<Entity>`, `"covariates"` → `Map<String, List<Covariate>>`, `"community_hierarchy"` →
+     * `Map<Int, Int>`,
      * and `"additional_context"` → `Map<String, String?>`). Unsupported keys are omitted from the result.
      *
-     * @param encoded A map of state entries encoded as `JsonElement` values (typically produced by the corresponding encoder).
-     * @return A map of decoded state entries where values are typed Kotlin objects for supported keys, or omitted for unsupported entries.
+     * @param encoded A map of state entries encoded as `JsonElement` values (typically produced by the
+     * corresponding encoder).
+     * @return A map of decoded state entries where values are typed Kotlin objects for supported keys, or
+     * omitted for unsupported entries.
      */
     fun decodeState(encoded: Map<String, JsonElement>): Map<String, Any?> {
         val json = Json { ignoreUnknownKeys = true }

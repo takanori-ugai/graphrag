@@ -92,7 +92,9 @@ class GlobalSearchEngine(
      *
      * @param question The user query to search for.
      * @param conversationHistory Ordered list of previous conversation turns, earliest first, to include as context.
-     * @return A [GlobalSearchResult] containing the final answer, the list of per-chunk map responses, the reduced context text, context records, total LLM call and token counts, and per-phase category breakdowns for build, map, and reduce.
+     * @return A [GlobalSearchResult] containing the final answer, the list of per-chunk map responses, the
+     * reduced context text, context records, total LLM call and token counts, and per-phase category breakdowns
+     * for build, map, and reduce.
      */
     suspend fun search(
         question: String,
@@ -147,14 +149,18 @@ class GlobalSearchEngine(
     /**
      * Builds textual context chunks and associated metadata for the given question and conversation history.
      *
-     * Uses report selection to produce one or more context text chunks (conversation section followed by a table of report rows)
-     * that each respect the configured maximum context token budget, and assembles context records and LLM token/usage totals
+     * Uses report selection to produce one or more context text chunks (conversation section followed by a
+     * table of report rows)
+     * that each respect the configured maximum context token budget, and assembles context records and LLM
+     * token/usage totals
      * for the context-building phase.
      *
      * @param question The user's query driving report selection and context construction.
      * @param conversationHistory Ordered list of prior conversation turns to include in the context.
-     * @return A ContextBuildResult containing the list of context text chunks, a map of context records (reports and conversation),
-     *         and aggregated LLM usage counts (llmCalls, promptTokens, outputTokens) attributable to the context-building step.
+     * @return A ContextBuildResult containing the list of context text chunks, a map of context records
+     * (reports and conversation),
+     * and aggregated LLM usage counts (llmCalls, promptTokens, outputTokens) attributable to the
+     * context-building step.
      */
     private suspend fun buildContextChunks(
         question: String,
@@ -357,13 +363,16 @@ class GlobalSearchEngine(
     }
 
     /**
-     * Produces a numeric rating for a community report relative to the provided question and returns that rating with token usage metrics.
+     * Produces a numeric rating for a community report relative to the provided question and returns that
+     * rating with token usage metrics.
      *
-     * Sends the configured rating prompt (possibly repeated) for the report and aggregates the most frequent numeric rating across repeats.
+     * Sends the configured rating prompt (possibly repeated) for the report and aggregates the most frequent
+     * numeric rating across repeats.
      *
      * @param question The user question used to contextualize the rating.
      * @param report The CommunityReport being rated.
-     * @return A RatingResult containing the report's communityId, the chosen rating (mode of collected ratings, defaulting to 1 if unavailable), and the accumulated prompt and output token counts.
+     * @return A RatingResult containing the report's communityId, the chosen rating (mode of collected ratings,
+     * defaulting to 1 if unavailable), and the accumulated prompt and output token counts.
      */
     private suspend fun rateCommunity(
         question: String,
@@ -414,7 +423,8 @@ class GlobalSearchEngine(
     /**
      * Generates a per-chunk "map" response for the given question using the provided context.
      *
-     * @return `QueryResult` containing the map-phase answer, minimal context records, and LLM/token usage tallied under the "map" category.
+     * @return `QueryResult` containing the map-phase answer, minimal context records, and LLM/token usage
+     * tallied under the "map" category.
      */
     private suspend fun mapStep(
         question: String,
@@ -455,7 +465,9 @@ class GlobalSearchEngine(
      * @param question The user question to answer.
      * @param mapResponses The list of map-phase `QueryResult`s whose extracted points will be considered for reduction.
      * @param conversationHistory Historical turns to include in the reduce context.
-     * @return A `QueryResult` containing the synthesized answer, the composed reduce context text, and token/LLM usage categorized for the reduce phase (or a `NO_DATA_ANSWER` result with zero usage when no data is usable).
+     * @return A `QueryResult` containing the synthesized answer, the composed reduce context text, and
+     * token/LLM usage categorized for the reduce phase (or a `NO_DATA_ANSWER` result with zero usage when no
+     * data is usable).
      */
     private suspend fun reduceStep(
         question: String,
@@ -565,7 +577,8 @@ class GlobalSearchEngine(
      * Each turn is formatted as "turn|content" in a block prefixed by "-----Conversation-----" and a header row.
      *
      * @param history Ordered list of conversation turns (earliest first).
-     * @return A Pair where the first element is the formatted conversation section string and the second element is a list of mutable maps for each turn with keys:
+     * @return A Pair where the first element is the formatted conversation section string and the second
+     * element is a list of mutable maps for each turn with keys:
      * - `"turn"`: turn index (1-based),
      * - `"content"`: turn text,
      * - `"in_context"`: `"true"`.
@@ -592,7 +605,8 @@ class GlobalSearchEngine(
      *
      * @param question The user's current question (placed first).
      * @param history Prior conversation turns; each entry is appended as a separate line after the question.
-     * @return The concatenated text: the question followed by each history entry on its own line, with no trailing newline.
+     * @return The concatenated text: the question followed by each history entry on its own line, with no
+     * trailing newline.
      */
     private fun appendConversationHistory(
         question: String,
@@ -646,7 +660,8 @@ class GlobalSearchEngine(
      *
      * @param question The user's question to answer.
      * @param conversationHistory Ordered list of prior conversation turns to include in the context (optional).
-     * @return A Flow<String> that emits partial response strings representing incremental LLM output; the complete answer
+     * @return A Flow<String> that emits partial response strings representing incremental LLM output; the
+     * complete answer
      *         is the concatenation of all emitted chunks, and the flow completes when the reduce response finishes.
      */
     fun streamSearch(
@@ -787,7 +802,8 @@ class GlobalSearchEngine(
             Points supported by data should list the relevant reports as references as follows:
             "This is an example sentence supported by data references [Data: Reports (report ids)]"
 
-            **Do not list more than 5 record ids in a single reference**. Instead, list the top 5 most relevant record ids and add "+more" to indicate that there are more.
+            * *Do not list more than 5 record ids in a single reference**. Instead, list the top 5 most relevant
+            * record ids and add "+more" to indicate that there are more.
 
             For example:
             "Person X is the owner of Company Y and subject to many allegations of wrongdoing [Data: Reports (2, 7, 64, 46, 34, +more)]. He is also CEO of company X [Data: Reports (1, 3)]"
@@ -827,7 +843,8 @@ class GlobalSearchEngine(
 
             The response should also preserve all the data references previously included in the analysts' reports, but do not mention the roles of multiple analysts in the analysis process.
 
-            **Do not list more than 5 record ids in a single reference**. Instead, list the top 5 most relevant record ids and add "+more" to indicate that there are more.
+            * *Do not list more than 5 record ids in a single reference**. Instead, list the top 5 most relevant
+            * record ids and add "+more" to indicate that there are more.
 
             For example:
 
@@ -863,7 +880,8 @@ class GlobalSearchEngine(
 
             The response should also preserve all the data references previously included in the analysts' reports, but do not mention the roles of multiple analysts in the analysis process.
 
-            **Do not list more than 5 record ids in a single reference**. Instead, list the top 5 most relevant record ids and add "+more" to indicate that there are more.
+            * *Do not list more than 5 record ids in a single reference**. Instead, list the top 5 most relevant
+            * record ids and add "+more" to indicate that there are more.
 
             For example:
 

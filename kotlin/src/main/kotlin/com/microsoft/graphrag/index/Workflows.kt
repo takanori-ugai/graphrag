@@ -53,9 +53,11 @@ private val openAiApiKey: String by lazy { defaultApiKey() }
 private val sharedChatModel: dev.langchain4j.model.openai.OpenAiChatModel by lazy { defaultChatModel() }
 
 /**
- * Loads documents from the configured input directory, splits them into chunks, and records the results in the pipeline context.
+ * Loads documents from the configured input directory, splits them into chunks, and records the results in the
+ * pipeline context.
  *
- * Stores the chunk list under `context.state["chunks"]`, the corresponding text units under `context.state["text_units"]`,
+ * Stores the chunk list under `context.state["chunks"]`, the corresponding text units under
+ * `context.state["text_units"]`,
  * and writes a small descriptor file to `context.outputStorage` noting the number of chunks and timestamp.
  *
  * @param config Provides the `inputDir` from which documents are loaded.
@@ -78,7 +80,8 @@ private suspend fun loadInputDocuments(
  * Extracts entities and relationships from the document chunks in the pipeline context.
  *
  * Stores extracted entities under "entities" and relationships under "relationships" in `context.state`,
- * writes a summary entry "graph_extracted.txt" to `context.outputStorage`, and returns a workflow result indicating the graph extraction step.
+ * writes a summary entry "graph_extracted.txt" to `context.outputStorage`, and returns a workflow result
+ * indicating the graph extraction step.
  *
  * @return A WorkflowResult whose `result` is `"graph"`.
  */
@@ -104,7 +107,9 @@ private suspend fun extractGraph(
 /**
  * Extracts claims from document chunks, stores them in the pipeline context, and records a descriptor.
  *
- * Extracts claims from the "chunks" entry in context.state, saves the resulting claims back into context.state under the "claims" key, and writes a "claims_extracted.txt" descriptor containing the number of claims and a timestamp.
+ * Extracts claims from the "chunks" entry in context.state, saves the resulting claims back into context.state
+ * under the "claims" key, and writes a "claims_extracted.txt" descriptor containing the number of claims and a
+ * timestamp.
  *
  * @param context PipelineRunContext used to read chunks and persist extracted claims and the output descriptor.
  * @return A WorkflowResult with result set to "claims".
@@ -129,7 +134,8 @@ private suspend fun extractClaims(
 /**
  * Generates embeddings for the pipeline's document chunks and records the results.
  *
- * Embeds the chunks with the configured embedding model, stores the resulting embeddings in `context.state["text_embeddings"]`,
+ * Embeds the chunks with the configured embedding model, stores the resulting embeddings in
+ * `context.state["text_embeddings"]`,
  * and writes a descriptor to `context.outputStorage` containing the number of embeddings and a timestamp.
  *
  * @return A WorkflowResult with result `"text_embeddings"`.
@@ -156,7 +162,8 @@ private suspend fun embedText(
 }
 
 /**
- * Generates embeddings for the pipeline's entities, stores the embeddings in the run state, reports progress, and writes a brief output descriptor.
+ * Generates embeddings for the pipeline's entities, stores the embeddings in the run state, reports progress,
+ * and writes a brief output descriptor.
  *
  * @param config GraphRagConfig for the current run.
  * @param context PipelineRunContext used to read entities, report progress, and persist outputs.
@@ -190,7 +197,8 @@ private suspend fun embedGraph(
  * relationships in the context are replaced with the (possibly summarized) relationships,
  * and a brief descriptor noting the number of summaries and timestamp is written to outputStorage.
  *
- * @param context PipelineRunContext used to read inputs from and write artifacts to the pipeline state and output storage.
+ * @param context PipelineRunContext used to read inputs from and write artifacts to the pipeline state and
+ * output storage.
  * @return `WorkflowResult` with `result` set to "entity_summaries".
  */
 @Suppress("UnusedParameter")
@@ -230,12 +238,17 @@ private suspend fun buildGraph(
 }
 
 /**
- * Writes pipeline artifacts (Parquet files, JSON reports, and a local vector store) to the configured output directory and records an output marker.
+ * Writes pipeline artifacts (Parquet files, JSON reports, and a local vector store) to the configured output
+ * directory and records an output marker.
  *
- * Serializes community reports as pretty-printed JSON, writes entities, relationships, text embeddings, entity embeddings, community assignments, text units, entity summaries, and claims as Parquet files, saves a LocalVectorStore with text and entity embeddings, and records a timestamped descriptor in the pipeline's output storage.
+ * Serializes community reports as pretty-printed JSON, writes entities, relationships, text embeddings, entity
+ * embeddings, community assignments, text units, entity summaries, and claims as Parquet files, saves a
+ * LocalVectorStore with text and entity embeddings, and records a timestamped descriptor in the pipeline's
+ * output storage.
  *
  * @param config Configuration containing the output directory and other pipeline settings.
- * @param context Pipeline run context holding state and outputStorage used to read artifacts and record the write marker.
+ * @param context Pipeline run context holding state and outputStorage used to read artifacts and record the
+ * write marker.
  * @return A WorkflowResult with result set to `"outputs_written"`.
  */
 @Suppress("UnusedParameter")

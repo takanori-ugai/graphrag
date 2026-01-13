@@ -18,7 +18,8 @@ class LocalVectorStore(
     private val logger = KotlinLogging.logger {}
 
     /**
-     * Writes the provided text and entity embeddings to the store file as a JSON payload, creating the parent directory if necessary.
+     * Writes the provided text and entity embeddings to the store file as a JSON payload, creating the parent
+     * directory if necessary.
      *
      * @param textEmbeddings The list of text embeddings to persist.
      * @param entityEmbeddings The list of entity embeddings to persist.
@@ -35,7 +36,8 @@ class LocalVectorStore(
     /**
      * Load the stored Payload from the configured path or return the configured override if present.
      *
-     * @return `Payload` loaded from disk, the configured override if provided, or `null` if the file does not exist or cannot be deserialized.
+     * @return `Payload` loaded from disk, the configured override if provided, or `null` if the file does not
+     * exist or cannot be deserialized.
      */
     fun load(): Payload? {
         payloadOverride?.let { return it }
@@ -53,7 +55,8 @@ class LocalVectorStore(
      *
      * @param query The query embedding vector to compare against stored entity vectors.
      * @param limit Maximum number of nearest entities to return.
-     * @return A list of pairs where each pair is the entity ID and its Euclidean distance to the query, ordered from nearest to farthest.
+     * @return A list of pairs where each pair is the entity ID and its Euclidean distance to the query, ordered
+     * from nearest to farthest.
      */
     fun nearestEntities(
         query: List<Double>,
@@ -68,7 +71,8 @@ class LocalVectorStore(
      *
      * @param query The query embedding vector to match against stored chunk vectors.
      * @param limit Maximum number of nearest chunks to return.
-     * @return A list of pairs where each pair contains a chunk ID and its distance to the query; pairs are ordered from nearest to farthest.
+     * @return A list of pairs where each pair contains a chunk ID and its distance to the query; pairs are
+     * ordered from nearest to farthest.
      */
     fun nearestTextChunks(
         query: List<Double>,
@@ -96,7 +100,8 @@ class LocalVectorStore(
      * @param embeddings List of pairs where the first element is the label (id) and the second is the embedding vector.
      * @param query The query embedding vector to search for.
      * @param k Maximum number of nearest neighbors to return.
-     * @return A list of up to `k` pairs `(label, distance)`, where `distance` is the Euclidean distance between the query and the embedding.
+     * @return A list of up to `k` pairs `(label, distance)`, where `distance` is the Euclidean distance between
+     * the query and the embedding.
      *         Returns an empty list if `embeddings` or `query` is empty.
      */
     private fun linearSearch(

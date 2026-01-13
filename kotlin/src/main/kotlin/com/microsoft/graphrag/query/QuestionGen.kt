@@ -30,14 +30,21 @@ class LocalQuestionGen(
     private val encoding: Encoding = Encodings.newLazyEncodingRegistry().getEncoding(EncodingType.CL100K_BASE),
 ) {
     /**
-     * Generate one or more questions using the streaming chat model, optionally building or using provided contextual records.
+     * Generate one or more questions using the streaming chat model, optionally building or using provided
+     * contextual records.
      *
-     * If `questionHistory` is non-empty, the last element is treated as the current question and earlier elements are used as prior conversation turns. If `contextData` is null, this function invokes the context builder with the provided ranking and top-K parameters to assemble context; otherwise it uses the supplied `contextData` as a single in-context record. The generated questions are produced by formatting a system prompt with the assembled context and invoking the streaming model.
+     * If `questionHistory` is non-empty, the last element is treated as the current question and earlier
+     * elements are used as prior conversation turns. If `contextData` is null, this function invokes the
+     * context builder with the provided ranking and top-K parameters to assemble context; otherwise it uses the
+     * supplied `contextData` as a single in-context record. The generated questions are produced by formatting
+     * a system prompt with the assembled context and invoking the streaming model.
      *
-     * @param questionHistory List of prior user questions; the last item is the current question and earlier items become conversation history.
+     * @param questionHistory List of prior user questions; the last item is the current question and earlier
+     * items become conversation history.
      * @param contextData Optional raw context text to use instead of building context.
      * @param questionCount Number of questions to request from the model.
-     * @param conversationHistoryMaxTurns Maximum number of prior turns to include in conversation history when building context.
+     * @param conversationHistoryMaxTurns Maximum number of prior turns to include in conversation history when
+     * building context.
      * @param maxContextTokens Maximum tokens allowed for assembled context.
      * @param textUnitProp Weight applied to text-unit relevance when building context.
      * @param communityProp Weight applied to community relevance when building context.
@@ -49,7 +56,8 @@ class LocalQuestionGen(
      * @param includeEntityRank Include entity rank scores in the built context when true.
      * @param includeRelationshipWeight Include relationship weight values in the built context when true.
      * @return A QuestionResult containing:
-     *   - `response`: a list of generated question strings (each non-empty line from the model, trimmed of leading "- "),
+     * - `response`: a list of generated question strings (each non-empty line from the model, trimmed of
+     * leading "- "),
      *   - `contextData`: the context records used (including a `question_context` entry),
      *   - `completionTime`: total generation time in seconds,
      *   - `llmCalls`: number of LLM calls performed,
@@ -133,14 +141,19 @@ class LocalQuestionGen(
     }
 
     /**
-     * Streams generated question text from the LLM, using either provided context or context built from the conversation history.
+     * Streams generated question text from the LLM, using either provided context or context built from the
+     * conversation history.
      *
-     * Builds or reuses context, notifies callbacks with context updates and new tokens, and emits partial response chunks as they arrive from the model.
+     * Builds or reuses context, notifies callbacks with context updates and new tokens, and emits partial
+     * response chunks as they arrive from the model.
      *
-     * @param questionHistory List of prior question strings; the last element is treated as the current question and earlier elements become conversation turns.
-     * @param contextData Optional precomputed context text; when provided, it is used directly instead of invoking the context builder.
+     * @param questionHistory List of prior question strings; the last element is treated as the current
+     * question and earlier elements become conversation turns.
+     * @param contextData Optional precomputed context text; when provided, it is used directly instead of
+     * invoking the context builder.
      * @param questionCount Number of questions to request or include in the prompt template.
-     * @param conversationHistoryMaxTurns Maximum number of previous turns to include when constructing conversation history for context building.
+     * @param conversationHistoryMaxTurns Maximum number of previous turns to include when constructing
+     * conversation history for context building.
      * @param maxContextTokens Maximum number of tokens allowed for built context.
      * @param textUnitProp Weight (0.0–1.0) controlling the influence of text-unit relevance when building context.
      * @param communityProp Weight (0.0–1.0) controlling the influence of community relevance when building context.
@@ -280,7 +293,8 @@ class LocalQuestionGen(
     }
 
     /**
-     * Builds the system prompt by replacing template placeholders with the provided context and question count, then appending the user question.
+     * Builds the system prompt by replacing template placeholders with the provided context and question count,
+     * then appending the user question.
      *
      * @param contextData Text to substitute for the `{context_data}` placeholder in the system prompt.
      * @param questionCount Number to substitute for the `{question_count}` placeholder in the system prompt.

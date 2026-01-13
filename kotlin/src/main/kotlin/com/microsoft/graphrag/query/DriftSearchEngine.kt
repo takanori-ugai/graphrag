@@ -56,7 +56,9 @@ private class DriftSearchState {
     /**
      * Adds a primer node to the search state and enqueues its follow-up queries.
      *
-     * The follow-up queries enqueued are chosen in this order of precedence: the supplied `followUps` list if non-empty, otherwise `primerResult.followUpQueries` if non-empty, otherwise a single follow-up equal to `query`.
+     * The follow-up queries enqueued are chosen in this order of precedence: the supplied `followUps` list if
+     * non-empty, otherwise `primerResult.followUpQueries` if non-empty, otherwise a single follow-up equal to
+     * `query`.
      *
      * @param query The primer query text.
      * @param primerResult The result produced for the primer node.
@@ -176,7 +178,8 @@ private class DriftSearchState {
     /**
      * Builds structured records for all nodes, suitable for downstream consumption or telemetry.
      *
-     * Each record describes a node's id, parent, query text, node type, score, and whether it contributed to the context; includes the node's answer when present.
+     * Each record describes a node's id, parent, query text, node type, score, and whether it contributed to
+     * the context; includes the node's answer when present.
      *
      * @return A map with the key `"actions"` mapping to a list of mutable maps. Each map contains:
      *  - `"id"`: node id as a string
@@ -249,13 +252,17 @@ class DriftSearchEngine(
     private val logger = KotlinLogging.logger {}
 
     /**
-     * Performs a DRIFT-style search for the given question, producing a final answer, collected action results, and usage accounting.
+     * Performs a DRIFT-style search for the given question, producing a final answer, collected action results,
+     * and usage accounting.
      *
-     * Notifies configured callbacks with planner context records, runs a reduction step over accumulated context, and aggregates LLM call and token usage by stage.
+     * Notifies configured callbacks with planner context records, runs a reduction step over accumulated
+     * context, and aggregates LLM call and token usage by stage.
      *
      * @param question The user question to answer.
      * @param followUpQueries Optional initial follow-up queries to seed the planner.
-     * @return A DriftSearchResult containing the final answer (or the last action's answer if the reducer is blank), the list of action results, context text and records, and aggregated LLM call and token metrics broken down by stage.
+     * @return A DriftSearchResult containing the final answer (or the last action's answer if the reducer is
+     * blank), the list of action results, context text and records, and aggregated LLM call and token metrics
+     * broken down by stage.
      */
     suspend fun search(
         question: String,
@@ -315,11 +322,15 @@ class DriftSearchEngine(
     }
 
     /**
-     * Executes the planning phase: runs the primer (with fallback), expands and executes local follow-up queries up to the iteration limit, and assembles planner state and usage totals.
+     * Executes the planning phase: runs the primer (with fallback), expands and executes local follow-up
+     * queries up to the iteration limit, and assembles planner state and usage totals.
      *
      * @param question The main user question driving the primer and local queries.
-     * @param followUpQueries Optional follow-up queries to seed the planner in addition to those produced by the primer.
-     * @return A PlannerResult containing the constructed DriftSearchState, the primer result, collected local results, merged context text and records, and aggregated LLM usage counters (llmCalls, promptTokens, outputTokens).
+     * @param followUpQueries Optional follow-up queries to seed the planner in addition to those produced by
+     * the primer.
+     * @return A PlannerResult containing the constructed DriftSearchState, the primer result, collected local
+     * results, merged context text and records, and aggregated LLM usage counters (llmCalls, promptTokens,
+     * outputTokens).
      */
     private suspend fun runPlanner(
         question: String,
@@ -330,12 +341,9 @@ class DriftSearchEngine(
         var totalOutputTokens = 0
 
         val primer =
-            try {
-                primerSearch(question)
-            } catch (error: Exception) {
-                logger.warn(error) { "Primer search failed, using fallback" }
-                buildPrimerFallback(question)
-            }
+            runCatching { primerSearch(question) }
+                .onFailure { error -> logger.warn(error) { "Primer search failed, using fallback" } }
+                .getOrElse { buildPrimerFallback(question) }
         totalLlmCalls += primer.llmCalls
         totalPromptTokens += primer.promptTokens
         totalOutputTokens += primer.outputTokens
@@ -391,13 +399,17 @@ class DriftSearchEngine(
     }
 
     /**
-     * Streams a DRIFT-style search that first emits completed local action answers and then streams the reduce-phase response.
+     * Streams a DRIFT-style search that first emits completed local action answers and then streams the
+     * reduce-phase response.
      *
-     * Runs planning synchronously, emits each non-blank completed action answer, then starts a streaming reduce prompt and emits partial tokens as they arrive. The flow closes when the reduce response completes and will close with an error if the streaming model reports an error.
+     * Runs planning synchronously, emits each non-blank completed action answer, then starts a streaming reduce
+     * prompt and emits partial tokens as they arrive. The flow closes when the reduce response completes and
+     * will close with an error if the streaming model reports an error.
      *
      * @param question The user's question to answer.
      * @param followUpQueries Optional initial follow-up queries to seed the planner.
-     * @return A Flow of strings containing emitted completed action answers (if any) followed by partial reduce-phase tokens; the flow completes when the reduce step finishes.
+     * @return A Flow of strings containing emitted completed action answers (if any) followed by partial
+     * reduce-phase tokens; the flow completes when the reduce step finishes.
      */
     suspend fun streamSearch(
         question: String,
@@ -446,11 +458,15 @@ class DriftSearchEngine(
     }
 
     /**
-     * Sends a reduce prompt (including provided context and the user question) to the streaming model and returns a QueryResult representing the reduce-phase response.
+     * Sends a reduce prompt (including provided context and the user question) to the streaming model and
+     * returns a QueryResult representing the reduce-phase response.
      *
      * @param question The user's question to include in the reduce prompt.
      * @param contextText The textual context assembled from prior planner/local results to include in the prompt.
-     * @return A QueryResult containing the reduce-phase answer, empty context lists/records, the supplied contextText, and usage counts (llmCalls, promptTokens, outputTokens) categorized under "reduce". The `answer` will be an empty string if the streaming model fails or an error occurs while collecting the response.
+     * @return A QueryResult containing the reduce-phase answer, empty context lists/records, the supplied
+     * contextText, and usage counts (llmCalls, promptTokens, outputTokens) categorized under "reduce". The
+     * `answer` will be an empty string if the streaming model fails or an error occurs while collecting the
+     * response.
      */
     private suspend fun reduce(
         question: String,
@@ -560,10 +576,13 @@ class DriftSearchEngine(
     /**
      * Builds a compact primer context from the top community reports.
      *
-     * Produces a text blob concatenating up to `topK` reports (sorted by descending rank) and a list of record maps for all reports indicating whether each was included in the text.
+     * Produces a text blob concatenating up to `topK` reports (sorted by descending rank) and a list of record
+     * maps for all reports indicating whether each was included in the text.
      *
      * @param topK Maximum number of highest-ranked reports to include in the returned text; defaults to 5.
-     * @return A [PrimerContext] containing `text` with selected report summaries and `records` where each map contains keys: `"id"`, `"community_id"`, `"title"`, `"rank"`, and `"in_context"` (`"true"` if the report appears in the `text`, otherwise `"false"`).
+     * @return A [PrimerContext] containing `text` with selected report summaries and `records` where each map
+     * contains keys: `"id"`, `"community_id"`, `"title"`, `"rank"`, and `"in_context"` (`"true"` if the report
+     * appears in the `text`, otherwise `"false"`).
      */
     private fun buildPrimerContext(topK: Int = 5): PrimerContext {
         if (communityReports.isEmpty()) return PrimerContext("", emptyList())
@@ -592,7 +611,9 @@ class DriftSearchEngine(
      *
      * @param raw The raw primer output (typically JSON).
      * @param fallback The fallback answer to use when parsing fails or the answer field is missing.
-     * @return A [PrimerParsed] containing the parsed `answer`, `followUps`, and `score`. If parsing fails, returns a `PrimerParsed` with `answer` set to `fallback`, an empty `followUps` list, and `score` set to `null`.
+     * @return A [PrimerParsed] containing the parsed `answer`, `followUps`, and `score`. If parsing fails,
+     * returns a `PrimerParsed` with `answer` set to `fallback`, an empty `followUps` list, and `score` set to
+     * `null`.
      */
     private fun parsePrimer(
         raw: String,
@@ -626,7 +647,9 @@ class DriftSearchEngine(
      * Obtain a primer QueryResult by delegating to the configured global search engine or returning a default fallback.
      *
      * @param question The question used to perform the global search if a global search engine is configured.
-     * @return A QueryResult created from the global search result preserving answer, context records, context text, and usage counters when available; otherwise a QueryResult with the answer "No primer available." and empty context.
+     * @return A QueryResult created from the global search result preserving answer, context records, context
+     * text, and usage counters when available; otherwise a QueryResult with the answer "No primer available."
+     * and empty context.
      */
     private suspend fun buildPrimerFallback(question: String): QueryResult {
         val global = globalSearchEngine?.search(question)

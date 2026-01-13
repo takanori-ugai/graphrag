@@ -21,7 +21,8 @@ class EmbedWorkflow(
      * @param chunks The document chunks to embed.
      * @param progress Optional progress handler that receives periodic updates during embedding.
      * @param description Description passed to the progress ticker for display or logging.
-     * @return A list of `TextEmbedding` objects for chunks whose embeddings were successfully computed; chunks that fail to embed are omitted.
+     * @return A list of `TextEmbedding` objects for chunks whose embeddings were successfully computed; chunks
+     * that fail to embed are omitted.
      */
     suspend fun embedChunks(
         chunks: List<DocumentChunk>,
@@ -46,7 +47,8 @@ class EmbedWorkflow(
      * @param entities The entities to embed; each entity's `name` is used to compute its embedding.
      * @param progress Optional progress handler called as each embedding completes.
      * @param description Human-readable description forwarded to the progress ticker.
-     * @return A list of EntityEmbedding objects pairing `entityId` with the computed embedding vector; entities whose embeddings fail are omitted.
+     * @return A list of EntityEmbedding objects pairing `entityId` with the computed embedding vector; entities
+     * whose embeddings fail are omitted.
      */
     suspend fun embedEntities(
         entities: List<Entity>,
@@ -69,17 +71,18 @@ class EmbedWorkflow(
      * Computes the embedding vector for the given text.
      *
      * @param text The input text to embed.
-     * @return `List<Double>` containing the embedding vector, or `null` if an error occurs while obtaining the embedding.
+     * @return `List<Double>` containing the embedding vector, or `null` if an error occurs while obtaining the
+     * embedding.
      */
     private fun embed(text: String): List<Double>? =
-        try {
+        runCatching {
             val response: Response<dev.langchain4j.data.embedding.Embedding> = embeddingModel.embed(text)
             response
                 .content()
                 ?.vector()
                 ?.asList()
                 ?.map { it.toDouble() }
-        } catch (e: Exception) {
+        }.getOrElse { e ->
             logger.warn(e) { "Embedding failed for text: ${text.take(50)}..." }
             null
         }

@@ -76,7 +76,9 @@ class CommunityReportWorkflow(
     /**
      * Builds a CSV table of entities with columns "id", "entity", and "description".
      *
-     * @param entities List of entities to include; each row uses a 1-based index as the `id`, the entity's `name` as `entity`, and the entity's `description` (or `"entity"` when blank) as `description`. All values are escaped for CSV.
+     * @param entities List of entities to include; each row uses a 1-based index as the `id`, the entity's
+     * `name` as `entity`, and the entity's `description` (or `"entity"` when blank) as `description`. All
+     * values are escaped for CSV.
      * @return A string containing the CSV header and one row per entity.
      */
     private fun buildEntitiesTable(entities: List<Entity>): String =
@@ -91,7 +93,9 @@ class CommunityReportWorkflow(
     /**
      * Build a CSV table of relationships with header "id,source,target,description".
      *
-     * Each relationship becomes a row where `id` is a 1-based row index, `source` and `target` are the relationship endpoint IDs, and `description` is the relationship description or, if absent, the relationship type.
+     * Each relationship becomes a row where `id` is a 1-based row index, `source` and `target` are the
+     * relationship endpoint IDs, and `description` is the relationship description or, if absent, the
+     * relationship type.
      *
      * @param relationships The relationships to include as CSV rows.
      * @return The CSV string containing the header and one row per relationship.

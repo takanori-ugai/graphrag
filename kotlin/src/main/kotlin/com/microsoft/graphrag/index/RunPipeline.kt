@@ -16,10 +16,13 @@ import java.time.Instant
  * timestamped delta and previous backups, and records an update timestamp in the run state.
  *
  * @param callbacks Callback interface used for progress and workflow lifecycle notifications.
- * @param isUpdateRun If true, run in update mode (produce a delta and backup previous output); otherwise perform a regular run.
+ * @param isUpdateRun If true, run in update mode (produce a delta and backup previous output); otherwise
+ * perform a regular run.
  * @param additionalContext Optional map merged into the pipeline run state under the key `"additional_context"`.
- * @param inputDocumentsJson Optional JSON string of preloaded documents; when provided, it is written into the active output storage and the corresponding document-loading step is skipped.
- * @return A Flow that emits a PipelineRunResult for each executed workflow. On error the Flow emits a single PipelineRunResult describing the failure (workflow name, current state, and error message).
+ * @param inputDocumentsJson Optional JSON string of preloaded documents; when provided, it is written into the
+ * active output storage and the corresponding document-loading step is skipped.
+ * @return A Flow that emits a PipelineRunResult for each executed workflow. On error the Flow emits a single
+ * PipelineRunResult describing the failure (workflow name, current state, and error message).
  */
 @Suppress("LongParameterList", "LongMethod", "TooGenericExceptionCaught")
 suspend fun runPipeline(

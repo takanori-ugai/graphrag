@@ -77,17 +77,21 @@ class LocalQueryEngine(
     private val encoding: Encoding = Encodings.newLazyEncodingRegistry().getEncoding(EncodingType.CL100K_BASE),
 ) {
     /**
-     * Generates an answer to the given question by building a local context, invoking the model, and aggregating results.
+     * Generates an answer to the given question by building a local context, invoking the model, and
+     * aggregating results.
      *
-     * Builds context from entities, relationships, claims, communities, and optional conversation history, constructs a prompt
-     * (optionally requesting JSON), runs the model to produce an answer, and aggregates context, follow-up queries, a score,
+     * Builds context from entities, relationships, claims, communities, and optional conversation history,
+     * constructs a prompt
+     * (optionally requesting JSON), runs the model to produce an answer, and aggregates context, follow-up
+     * queries, a score,
      * and LLM/token usage metrics into a QueryResult.
      *
      * @param question The user's question to answer.
      * @param responseType A descriptor that influences the style or format of the response (injected into the prompt).
      * @param conversationHistory Optional recent conversation turns to include in context; empty list means no history.
      * @param driftQuery Optional drift/global query string to modify or augment the prompt/context; null to omit.
-     * @return A QueryResult containing the model's answer text, the context chunks and context records used, any follow-up
+     * @return A QueryResult containing the model's answer text, the context chunks and context records used,
+     * any follow-up
      * queries, an optional score, and aggregated LLM call and token usage metrics.
      */
     suspend fun answer(
@@ -148,7 +152,8 @@ class LocalQueryEngine(
      * Produces context chunks relevant to the supplied question and optional conversation history.
      *
      * @param question The user's query to find contextual chunks for.
-     * @param conversationHistory Optional prior messages in chronological order to provide conversational context; pass an empty list for no history.
+     * @param conversationHistory Optional prior messages in chronological order to provide conversational
+     * context; pass an empty list for no history.
      * @return A list of QueryContextChunk containing the selected and ranked context pieces for the query.
      */
     suspend fun buildContext(
@@ -201,12 +206,16 @@ class LocalQueryEngine(
             }
 
     /**
-     * Streams a completion for the given prompt, aggregates the emitted tokens, and parses the final response into a ParsedAnswer.
+     * Streams a completion for the given prompt, aggregates the emitted tokens, and parses the final response
+     * into a ParsedAnswer.
      *
-     * Streams tokens from the configured streaming model, forwarding each partial token to registered callbacks. If the model produces a full response it is parsed as structured JSON (if possible) into a ParsedAnswer; on generation failure the raw text "No response generated." is parsed and returned.
+     * Streams tokens from the configured streaming model, forwarding each partial token to registered
+     * callbacks. If the model produces a full response it is parsed as structured JSON (if possible) into a
+     * ParsedAnswer; on generation failure the raw text "No response generated." is parsed and returned.
      *
      * @param prompt The full prompt to send to the streaming model.
-     * @return A ParsedAnswer representing the final parsed response (including any follow-up queries or score if present).
+     * @return A ParsedAnswer representing the final parsed response (including any follow-up queries or score
+     * if present).
      */
     private suspend fun generate(prompt: String): ParsedAnswer {
         val builder = StringBuilder()
@@ -233,15 +242,19 @@ class LocalQueryEngine(
     }
 
     /**
-     * Streams model-generated tokens for a question using a locally built context and notifies callbacks as tokens arrive.
+     * Streams model-generated tokens for a question using a locally built context and notifies callbacks as
+     * tokens arrive.
      *
-     * Builds a context from local data and optional conversation history, constructs the final prompt (optionally enforcing a JSON-only response), and emits partial response tokens from the streaming model as they are produced.
+     * Builds a context from local data and optional conversation history, constructs the final prompt
+     * (optionally enforcing a JSON-only response), and emits partial response tokens from the streaming model
+     * as they are produced.
      *
      * @param question The user's question to answer.
      * @param responseType The desired response type or format hint inserted into the prompt.
      * @param conversationHistory Past user messages in chronological order; empty by default.
      * @param driftQuery Optional global/drift query to include or replace context-related placeholders in the prompt.
-     * @return A Flow that emits partial response tokens (`String`) as the streaming model produces them; the flow completes when the model finishes or fails with an error.
+     * @return A Flow that emits partial response tokens (`String`) as the streaming model produces them; the
+     * flow completes when the model finishes or fails with an error.
      */
     fun streamAnswer(
         question: String,
@@ -300,13 +313,17 @@ class LocalQueryEngine(
         }
 
     /**
-     * Parses a raw model response string into a ParsedAnswer containing an answer, follow-up queries, and an optional score.
+     * Parses a raw model response string into a ParsedAnswer containing an answer, follow-up queries, and an
+     * optional score.
      *
-     * If `raw` is a JSON object with a `response` string, an optional `follow_up_queries` array of strings, and an optional numeric `score`,
-     * those values are extracted and returned. If parsing fails or the JSON is not an object, returns a fallback ParsedAnswer with
+     * If `raw` is a JSON object with a `response` string, an optional `follow_up_queries` array of strings, and
+     * an optional numeric `score`,
+     * those values are extracted and returned. If parsing fails or the JSON is not an object, returns a
+     * fallback ParsedAnswer with
      * the original `raw` as the answer, an empty follow-up list, and a null score.
      *
-     * @return A ParsedAnswer with `answer`, `followUps`, and `score` populated from the input when available, or a fallback containing the raw text otherwise.
+     * @return A ParsedAnswer with `answer`, `followUps`, and `score` populated from the input when available,
+     * or a fallback containing the raw text otherwise.
      */
     private fun parseStructuredAnswer(raw: String): ParsedAnswer {
         val fallback = ParsedAnswer(raw, emptyList(), null)
@@ -349,7 +366,8 @@ class LocalQueryEngine(
      * Create a ConversationHistory from a list of user messages.
      *
      * @param history The list of user messages in chronological order.
-     * @return A `ConversationHistory` with each message wrapped as a user `ConversationTurn`, or `null` if `history` is empty.
+     * @return A `ConversationHistory` with each message wrapped as a user `ConversationTurn`, or `null` if
+     * `history` is empty.
      */
     private fun toConversationHistory(history: List<String>): LocalSearchContextBuilder.ConversationHistory? =
         if (history.isEmpty()) {
@@ -383,7 +401,8 @@ class GlobalQueryEngine(
      * Produce an answer for the given question formatted according to the specified response type.
      *
      * @param question The user's question to be answered.
-     * @param responseType A descriptor that controls the format or style of the response (for example, a directive like `"short_answer"` or `"json"`).
+     * @param responseType A descriptor that controls the format or style of the response (for example, a
+     * directive like `"short_answer"` or `"json"`).
      * @return A `QueryResult` containing the generated answer and the context chunks that were used to produce it.
      */
     suspend fun answer(
@@ -424,11 +443,15 @@ class GlobalQueryEngine(
     }
 
     /**
-     * Builds the system prompt by injecting the provided report context and response type into the reduce-system template.
+     * Builds the system prompt by injecting the provided report context and response type into the
+     * reduce-system template.
      *
-     * @param responseType A short descriptor of the desired response style or intent that will replace `{response_type}` in the template.
-     * @param context A list of QueryContextChunk whose `id` and `text` are formatted as `report_id|summary` rows and inserted into the `{report_data}` placeholder.
-     * @return The completed system prompt string with the report context block, the specified response type, and the `{max_length}` placeholder set to 500.
+     * @param responseType A short descriptor of the desired response style or intent that will replace
+     * `{response_type}` in the template.
+     * @param context A list of QueryContextChunk whose `id` and `text` are formatted as `report_id|summary`
+     * rows and inserted into the `{report_data}` placeholder.
+     * @return The completed system prompt string with the report context block, the specified response type,
+     * and the `{max_length}` placeholder set to 500.
      */
     private fun buildPrompt(
         responseType: String,
@@ -484,7 +507,9 @@ class GlobalQueryEngine(
      *
      * @param a First vector (embedding) to compare.
      * @param b Second vector (embedding) to compare.
-     * @return The cosine similarity in the range [-1.0, 1.0] when both vectors are non-empty, equal-length, and have non-zero magnitude; returns `0.0` if either vector is empty, lengths differ, or either magnitude is zero.
+     * @return The cosine similarity in the range [-1.0, 1.0] when both vectors are non-empty, equal-length, and
+     * have non-zero magnitude; returns `0.0` if either vector is empty, lengths differ, or either magnitude is
+     * zero.
      */
     private fun cosineSimilarity(
         a: List<Double>,
@@ -522,7 +547,8 @@ class DriftQueryEngine(
      *
      * @param question The user question to answer.
      * @param responseType The desired response style or format inserted into the prompt.
-     * @return A [QueryResult] containing the generated answer and the combined, deduplicated, scored context chunks used to produce it.
+     * @return A [QueryResult] containing the generated answer and the combined, deduplicated, scored context
+     * chunks used to produce it.
      */
     suspend fun answer(
         question: String,
@@ -689,7 +715,8 @@ The response shall preserve the original meaning and use of modal verbs such as 
 
 The response should also preserve all the data references previously included in the analysts' reports, but do not mention the roles of multiple analysts in the analysis process.
 
-**Do not list more than 5 record ids in a single reference**. Instead, list the top 5 most relevant record ids and add "+more" to indicate that there are more.
+* *Do not list more than 5 record ids in a single reference**. Instead, list the top 5 most relevant record ids
+* and add "+more" to indicate that there are more.
 
 For example:
 
@@ -725,7 +752,8 @@ The response shall preserve the original meaning and use of modal verbs such as 
 
 The response should also preserve all the data references previously included in the analysts' reports, but do not mention the roles of multiple analysts in the analysis process.
 
-**Do not list more than 5 record ids in a single reference**. Instead, list the top 5 most relevant record ids and add "+more" to indicate that there are more.
+* *Do not list more than 5 record ids in a single reference**. Instead, list the top 5 most relevant record ids
+* and add "+more" to indicate that there are more.
 
 For example:
 

@@ -37,7 +37,8 @@ class ClaimsWorkflow(
 
     private interface Extractor {
         @dev.langchain4j.service.SystemMessage(
-            "You are an intelligent assistant that helps a human analyst to analyze claims against certain entities presented in a text document.",
+            "You are an intelligent assistant that helps a human analyst to analyze " +
+                "claims against certain entities presented in a text document.",
         )
         fun extractClaims(
             @dev.langchain4j.service.UserMessage userMessage: String,

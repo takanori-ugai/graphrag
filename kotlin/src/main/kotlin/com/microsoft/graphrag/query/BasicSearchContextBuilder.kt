@@ -163,7 +163,8 @@ class BasicSearchContextBuilder(
      *
      * @param a The first vector.
      * @param b The second vector (must be the same length as `a`).
-     * @return Similarity in the range -1.0 to 1.0; 0.0 if either vector is empty, lengths differ, or either vector has zero magnitude.
+     * @return Similarity in the range -1.0 to 1.0; 0.0 if either vector is empty, lengths differ, or either
+     * vector has zero magnitude.
      */
     private fun cosineSimilarity(
         a: List<Double>,

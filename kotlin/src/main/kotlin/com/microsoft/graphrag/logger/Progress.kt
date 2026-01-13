@@ -42,7 +42,9 @@ class ProgressTicker(
     /**
      * Marks the tracked work as complete and emits a final progress update.
      *
-     * Invokes the configured callback with a Progress whose `completedItems` equals the total, and—if a non-blank description is set—logs an informational message containing the description, completed and total counts followed by " (done)".
+     * Invokes the configured callback with a Progress whose `completedItems` equals the total, and—if a
+     * non-blank description is set—logs an informational message containing the description, completed and
+     * total counts followed by " (done)".
      */
     fun done() {
         val progress =

@@ -16,7 +16,8 @@ class CollectingQueryCallbacks : QueryCallbacks {
     /**
      * Stores a snapshot of streaming context records, converting each mutable record to an immutable map.
      *
-     * @param context A map from context key to a list of mutable record maps; each record is converted to an immutable `Map<String, String>` and stored in `contextRecords`.
+     * @param context A map from context key to a list of mutable record maps; each record is converted to an
+     * immutable `Map<String, String>` and stored in `contextRecords`.
      */
     override fun onContext(context: Map<String, List<MutableMap<String, String>>>) {
         contextRecords = context.mapValues { (_, records) -> records.map { it.toMap() } }

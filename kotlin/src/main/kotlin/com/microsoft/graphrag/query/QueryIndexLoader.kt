@@ -131,7 +131,8 @@ class QueryIndexLoader(
      * Determines whether the given path looks like a query index directory by checking for known marker files.
      *
      * @param dir Filesystem path to inspect; must point to a directory to be considered.
-     * @return `true` if `dir` is a directory and contains at least one of the expected marker files (`text_units.parquet`, `entities.parquet`, `context.json`, or `vector_store.json`), `false` otherwise.
+     * @return `true` if `dir` is a directory and contains at least one of the expected marker files
+     * (`text_units.parquet`, `entities.parquet`, `context.json`, or `vector_store.json`), `false` otherwise.
      */
     private fun looksLikeIndexDir(dir: Path): Boolean {
         if (!Files.isDirectory(dir)) return false
@@ -154,7 +155,8 @@ class QueryIndexLoader(
      * populated from the output's context state when available.
      *
      * @param outputDir Configuration object that provides the output directory path and logical name.
-     * @return A PartialIndex containing the loaded components, the resolved vector store path, and the loaded vector payload.
+     * @return A PartialIndex containing the loaded components, the resolved vector store path, and the loaded
+     * vector payload.
      */
     private fun loadOutput(outputDir: QueryIndexConfig): PartialIndex {
         val state = readContextState(outputDir.path)
@@ -310,16 +312,23 @@ class QueryIndexLoader(
     )
 
     /**
-     * Remaps identifiers in a PartialIndex to a namespaced form when needed and produces an IndexLookup for the remapped data.
+     * Remaps identifiers in a PartialIndex to a namespaced form when needed and produces an IndexLookup for the
+     * remapped data.
      *
-     * When `applyTags` is false this returns the same partial with its name sanitized and an IndexLookup that maps the partial's existing IDs to that sanitized name.
-     * When `applyTags` is true this returns a new PartialIndex whose IDs are prefixed with the sanitized index name and whose community IDs are shifted to avoid collisions using `communityOffset`; the vector payload is similarly rewritten to reference prefixed IDs.
+     * When `applyTags` is false this returns the same partial with its name sanitized and an IndexLookup that
+     * maps the partial's existing IDs to that sanitized name.
+     * When `applyTags` is true this returns a new PartialIndex whose IDs are prefixed with the sanitized index
+     * name and whose community IDs are shifted to avoid collisions using `communityOffset`; the vector payload
+     * is similarly rewritten to reference prefixed IDs.
      *
      * @param partial The PartialIndex to remap.
      * @param name The index name to sanitize and (when tagging) use as a prefix.
-     * @param communityOffset The starting offset used to shift non-negative community IDs to avoid collisions across outputs.
-     * @param applyTags If true, prefix and shift IDs; if false, keep IDs unchanged but record the sanitized name in the lookup.
-     * @return A RemapResult containing the (possibly remapped) PartialIndex, an IndexLookup mapping remapped IDs to the sanitized index name, and the next community offset to use for subsequent remaps.
+     * @param communityOffset The starting offset used to shift non-negative community IDs to avoid collisions
+     * across outputs.
+     * @param applyTags If true, prefix and shift IDs; if false, keep IDs unchanged but record the sanitized
+     * name in the lookup.
+     * @return A RemapResult containing the (possibly remapped) PartialIndex, an IndexLookup mapping remapped
+     * IDs to the sanitized index name, and the next community offset to use for subsequent remaps.
      */
     private fun remapPartial(
         partial: PartialIndex,
@@ -409,7 +418,9 @@ class QueryIndexLoader(
      * Merge multiple IndexLookup instances into a single combined lookup.
      *
      * @param lookups The list of IndexLookup objects to merge.
-     * @return An IndexLookup whose `indexNames` is the union of all input `indexNames`, and whose `textUnitIndex`, `entityIndex`, `communityIndex`, and `reportIndex` contain entries from all inputs; when the same key appears in multiple inputs, the entry from the later element in `lookups` takes precedence.
+     * @return An IndexLookup whose `indexNames` is the union of all input `indexNames`, and whose
+     * `textUnitIndex`, `entityIndex`, `communityIndex`, and `reportIndex` contain entries from all inputs; when
+     * the same key appears in multiple inputs, the entry from the later element in `lookups` takes precedence.
      */
     private fun mergeLookups(lookups: List<IndexLookup>): IndexLookup =
         IndexLookup(
@@ -423,7 +434,8 @@ class QueryIndexLoader(
     /**
      * Collects community-related IDs from a partial index and maps each to the given index name.
      *
-     * @param partial The PartialIndex to extract community IDs from (communityReports, communities, and communityHierarchy).
+     * @param partial The PartialIndex to extract community IDs from (communityReports, communities, and
+     * communityHierarchy).
      * @param name The index name to associate with each collected community ID.
      * @return A map from each discovered community ID to `name`.
      */
@@ -467,7 +479,8 @@ class QueryIndexLoader(
      *
      * @param payload The payload containing text and entity embeddings; may be null.
      * @param prefix The string to prepend to each embedding's chunk or entity identifier.
-     * @return A new Payload with each text embedding's `chunkId` and each entity embedding's `entityId` prefixed by `prefix`, or `null` if `payload` is null.
+     * @return A new Payload with each text embedding's `chunkId` and each entity embedding's `entityId`
+     * prefixed by `prefix`, or `null` if `payload` is null.
      */
     private fun rewriteVectorPayload(
         payload: Payload?,
@@ -505,7 +518,9 @@ class QueryIndexLoader(
     /**
      * Prefixes entity identifiers and remaps their community IDs.
      *
-     * Applies `prefix` to each entity's `id`, `sourceChunkId`, `textUnitIds`, and `shortId` (falls back to the prefixed original id when `shortId` is null). Applies `shiftCommunity` to each community id and omits any that map to `null`.
+     * Applies `prefix` to each entity's `id`, `sourceChunkId`, `textUnitIds`, and `shortId` (falls back to the
+     * prefixed original id when `shortId` is null). Applies `shiftCommunity` to each community id and omits any
+     * that map to `null`.
      *
      * @param entities The list of entities to transform.
      * @param prefix String to prepend to identifier fields.
@@ -556,7 +571,8 @@ class QueryIndexLoader(
      *
      * @param relationships The relationships whose id fields and referenced chunk/text-unit ids will be prefixed.
      * @param prefix The string to prepend to each identifier.
-     * @return A new list of Relationship where `sourceId`, `targetId`, `sourceChunkId`, each entry in `textUnitIds`, and `id` (if present) are prefixed.
+     * @return A new list of Relationship where `sourceId`, `targetId`, `sourceChunkId`, each entry in
+     * `textUnitIds`, and `id` (if present) are prefixed.
      */
     private fun prefixRelationships(
         relationships: List<Relationship>,
@@ -573,9 +589,11 @@ class QueryIndexLoader(
         }
 
     /**
-     * Prefixes each covariate's `id` and `subjectId` with the provided namespace and ensures every covariate has an `id`.
+     * Prefixes each covariate's `id` and `subjectId` with the provided namespace and ensures every covariate
+     * has an `id`.
      *
-     * For covariates whose `id` is blank, an id is generated as "<subjectId>-<covariateType>" before applying the prefix.
+     * For covariates whose `id` is blank, an id is generated as "<subjectId>-<covariateType>" before applying
+     * the prefix.
      *
      * @param covariates Map from covariate type to list of covariates to be prefixed.
      * @param prefix String to prepend to each covariate `id` and `subjectId`.
@@ -599,7 +617,8 @@ class QueryIndexLoader(
      *
      * @param communities The list of community assignments to transform.
      * @param prefix String to prepend to each assignment's `entityId`.
-     * @param shift Function that maps an original community ID to a new one; if it returns `null`, the result falls back to `originalCommunityId + communityOffset`.
+     * @param shift Function that maps an original community ID to a new one; if it returns `null`, the result
+     * falls back to `originalCommunityId + communityOffset`.
      * @param communityOffset Integer offset added to the original community ID when `shift` returns `null`.
      * @return A new list of `CommunityAssignment` with prefixed `entityId` values and updated `communityId` values.
      */
@@ -618,20 +637,25 @@ class QueryIndexLoader(
         }
 
     /**
-     * Produce a new list of CommunityReport with identifiers namespaced by `prefix`, community IDs adjusted via `shift` (or offset), and an added `index_name` attribute.
+     * Produce a new list of CommunityReport with identifiers namespaced by `prefix`, community IDs adjusted via
+     * `shift` (or offset), and an added `index_name` attribute.
      *
      * For each report:
-     * - `communityId` is replaced by the result of `shift(report.communityId)` if non-null, otherwise `report.communityId + communityOffset`.
+     * - `communityId` is replaced by the result of `shift(report.communityId)` if non-null, otherwise
+     * `report.communityId + communityOffset`.
      * - `parentCommunityId` is replaced by `shift(report.parentCommunityId)` (may be null).
-     * - `id` and `shortId` are prefixed with `prefix`; if `shortId` is missing, it falls back to the prefixed shifted community id.
+     * - `id` and `shortId` are prefixed with `prefix`; if `shortId` is missing, it falls back to the prefixed
+     * shifted community id.
      * - `attributes` is augmented with the key `"index_name"` set to `indexName`.
      *
      * @param reports The original community reports to transform.
      * @param prefix String to prepend to report `id` and `shortId`.
-     * @param shift Function that maps an original community id to a new id or returns null to indicate the fallback offset should be used.
+     * @param shift Function that maps an original community id to a new id or returns null to indicate the
+     * fallback offset should be used.
      * @param communityOffset Integer offset added to the original community id when `shift` returns null.
      * @param indexName Value stored in the `"index_name"` attribute for each transformed report.
-     * @return A list of transformed CommunityReport objects with namespaced ids, shifted community ids, and updated attributes.
+     * @return A list of transformed CommunityReport objects with namespaced ids, shifted community ids, and
+     * updated attributes.
      */
     private fun prefixCommunityReports(
         reports: List<CommunityReport>,
@@ -656,7 +680,8 @@ class QueryIndexLoader(
      * Update community IDs on a list of community report embeddings by applying a remapping or offset.
      *
      * @param embeddings The list of CommunityReportEmbedding objects to update.
-     * @param shift A function that takes an original community ID (nullable) and returns a remapped community ID or `null` to indicate fallback.
+     * @param shift A function that takes an original community ID (nullable) and returns a remapped community
+     * ID or `null` to indicate fallback.
      * @param communityOffset Integer offset to add to the original community ID when `shift` returns `null`.
      * @return A new list of CommunityReportEmbedding with `communityId` values replaced by the remapped or offset IDs.
      */
@@ -676,9 +701,11 @@ class QueryIndexLoader(
      * otherwise falls back to `id + communityOffset`.
      *
      * @param hierarchy Map from community id to parent community id.
-     * @param shift Function that maps an original community id to a new id, or returns `null` to request the offset fallback.
+     * @param shift Function that maps an original community id to a new id, or returns `null` to request the
+     * offset fallback.
      * @param communityOffset Integer offset added to an id when `shift` returns `null`.
-     * @return A new map where both community ids and parent ids have been transformed according to `shift` or offset fallback.
+     * @return A new map where both community ids and parent ids have been transformed according to `shift` or
+     * offset fallback.
      */
     private fun shiftCommunityHierarchy(
         hierarchy: Map<Int, Int>,
@@ -743,7 +770,9 @@ class QueryIndexLoader(
     /**
      * Retrieve a typed list from a state map by key.
      *
-     * Returns the elements at `state[key]` filtered to type `T`. If the key is missing or the value is not a list, an empty list is returned. If the list contains mixed types, only the entries of type `T` are returned and a warning is logged.
+     * Returns the elements at `state[key]` filtered to type `T`. If the key is missing or the value is not a
+     * list, an empty list is returned. If the list contains mixed types, only the entries of type `T` are
+     * returned and a warning is logged.
      *
      * @param state Map containing arbitrary state values.
      * @param key Key whose associated value should be interpreted as a list of `T`.
@@ -814,7 +843,8 @@ class QueryIndexLoader(
      * Loads text units from the index output directory's Parquet file.
      *
      * @param outputDir The index output directory containing `text_units.parquet`.
-     * @return A list of `TextUnit` objects read from `text_units.parquet`; returns an empty list if the file is missing or cannot be parsed.
+     * @return A list of `TextUnit` objects read from `text_units.parquet`; returns an empty list if the file is
+     * missing or cannot be parsed.
      */
     private fun loadTextUnits(outputDir: Path): List<TextUnit> = loadTextUnitsFromParquet(outputDir.resolve("text_units.parquet"))
 
@@ -822,7 +852,8 @@ class QueryIndexLoader(
      * Load text embeddings from the output directory's `text_embeddings.parquet` file.
      *
      * @param outputDir Path to the index output directory containing `text_embeddings.parquet`.
-     * @return A list of `TextEmbedding` objects parsed from `text_embeddings.parquet`; returns an empty list if the file is missing or cannot be read.
+     * @return A list of `TextEmbedding` objects parsed from `text_embeddings.parquet`; returns an empty list if
+     * the file is missing or cannot be read.
      */
     private fun loadTextEmbeddings(outputDir: Path): List<TextEmbedding> =
         loadTextEmbeddingsFromParquet(outputDir.resolve("text_embeddings.parquet"))
@@ -850,7 +881,8 @@ class QueryIndexLoader(
      * Load entity summary records from the given index output directory.
      *
      * @param outputDir Path to the index output directory that may contain `entity_summaries.parquet`.
-     * @return A list of `EntitySummary` objects read from `entity_summaries.parquet`, or an empty list if the file is missing or cannot be parsed.
+     * @return A list of `EntitySummary` objects read from `entity_summaries.parquet`, or an empty list if the
+     * file is missing or cannot be parsed.
      */
     private fun loadEntitySummaries(outputDir: Path): List<EntitySummary> =
         loadEntitySummariesFromParquet(outputDir.resolve("entity_summaries.parquet"))
@@ -858,7 +890,8 @@ class QueryIndexLoader(
     /**
      * Load relationship records from the output directory's relationships.parquet file.
      *
-     * @return A list of Relationship objects parsed from `relationships.parquet`; returns an empty list if the file is missing or cannot be read/parsed.
+     * @return A list of Relationship objects parsed from `relationships.parquet`; returns an empty list if the
+     * file is missing or cannot be read/parsed.
      */
     private fun loadRelationships(outputDir: Path): List<Relationship> =
         loadRelationshipsFromParquet(outputDir.resolve("relationships.parquet"))
@@ -866,7 +899,8 @@ class QueryIndexLoader(
     /**
      * Load claim records from the output directory's claims.parquet file.
      *
-     * @return A list of `Claim` objects parsed from `claims.parquet`, or an empty list if the file is missing or cannot be read.
+     * @return A list of `Claim` objects parsed from `claims.parquet`, or an empty list if the file is missing
+     * or cannot be read.
      */
     private fun loadClaims(outputDir: Path): List<Claim> = loadClaimsFromParquet(outputDir.resolve("claims.parquet"))
 
@@ -883,7 +917,8 @@ class QueryIndexLoader(
      * Loads community report embedding records from the given index output directory.
      *
      * @param outputDir Path to the index output directory that should contain `community_report_embeddings.parquet`.
-     * @return A list of `CommunityReportEmbedding` parsed from `community_report_embeddings.parquet`, or an empty list if the file is missing or cannot be read.
+     * @return A list of `CommunityReportEmbedding` parsed from `community_report_embeddings.parquet`, or an
+     * empty list if the file is missing or cannot be read.
      */
     private fun loadCommunityReportEmbeddings(outputDir: Path): List<CommunityReportEmbedding> =
         loadCommunityReportEmbeddingsFromParquet(outputDir.resolve("community_report_embeddings.parquet"))
@@ -891,7 +926,8 @@ class QueryIndexLoader(
     /**
      * Loads community reports from a "community_reports.json" file inside the given output directory.
      *
-     * @return A list of CommunityReport parsed from the file; returns an empty list if the file is missing or parsing fails.
+     * @return A list of CommunityReport parsed from the file; returns an empty list if the file is missing or
+     * parsing fails.
      */
     private fun loadCommunityReports(outputDir: Path): List<CommunityReport> {
         val jsonPath = outputDir.resolve("community_reports.json")
@@ -1019,7 +1055,8 @@ class QueryIndexLoader(
      * Load Claim records from a Parquet file.
      *
      * Parses each row into a Claim, mapping multiple possible field names for common columns.
-     * Rows missing a required `subject` or `object` value are skipped. Optional fields default to an empty string when absent.
+     * Rows missing a required `subject` or `object` value are skipped. Optional fields default to an empty
+     * string when absent.
      *
      * Recognized column name aliases:
      * - subject: "subject" or "source"
@@ -1100,11 +1137,13 @@ class QueryIndexLoader(
     /**
      * Load community assignments from a Parquet file.
      *
-     * Parses rows that contain `entity_id` (string) and `community_id` (int) and converts them to CommunityAssignment objects.
+     * Parses rows that contain `entity_id` (string) and `community_id` (int) and converts them to
+     * CommunityAssignment objects.
      * Rows missing either required field are skipped.
      *
      * @param path Path to the Parquet file containing community assignment records.
-     * @return A list of parsed CommunityAssignment objects; entries with missing `entity_id` or `community_id` are omitted.
+     * @return A list of parsed CommunityAssignment objects; entries with missing `entity_id` or `community_id`
+     * are omitted.
      */
     private fun loadCommunitiesFromParquet(path: Path): List<CommunityAssignment> =
         readParquet(path) { group ->
@@ -1131,9 +1170,11 @@ class QueryIndexLoader(
     /**
      * Load covariates from a Parquet file and convert them into a list of Covariate objects.
      *
-     * Each record must include a subject id (one of "subject_id", "entity_id", or "subjectId"); records missing a subject id are skipped.
+     * Each record must include a subject id (one of "subject_id", "entity_id", or "subjectId"); records missing
+     * a subject id are skipped.
      * If an explicit `id` is blank, an id is synthesized as "<subjectId>-<covariateType>".
-     * Attribute key/value pairs are taken from `name`/`value` when present, otherwise parsed from an `attributes` JSON field.
+     * Attribute key/value pairs are taken from `name`/`value` when present, otherwise parsed from an
+     * `attributes` JSON field.
      *
      * @param path Path to the Parquet file containing covariate records.
      * @return A list of parsed Covariate objects; records lacking a subject id are omitted.
@@ -1191,7 +1232,8 @@ class QueryIndexLoader(
      * or the subset of successfully parsed records is returned; failures are logged but do not throw.
      *
      * @param path Filesystem path to the Parquet file.
-     * @param parser Function that converts a Parquet `Group` record to an instance of `T`, or `null` to skip the record.
+     * @param parser Function that converts a Parquet `Group` record to an instance of `T`, or `null` to skip
+     * the record.
      * @return A list of parsed `T` instances (possibly empty).
      */
     private fun <T> readParquet(
@@ -1233,7 +1275,8 @@ class QueryIndexLoader(
      * Retrieve the first available double value from the group using a list of candidate field names.
      *
      * @param candidates Field names to check in order; the first present field with at least one value is used.
-     * @return The `Double` value from the first matching field, or `null` if no candidate field is present or contains a value.
+     * @return The `Double` value from the first matching field, or `null` if no candidate field is present or
+     * contains a value.
      */
     private fun Group.double(vararg candidates: String): Double? =
         candidates.firstNotNullOfOrNull { name ->
@@ -1246,7 +1289,8 @@ class QueryIndexLoader(
      * Retrieves the first present integer field from the group using the given candidate names.
      *
      * @param candidates Field names to try in order.
-     * @return The first integer value found for the provided field names, or `null` if none are present or have a value.
+     * @return The first integer value found for the provided field names, or `null` if none are present or have
+     * a value.
      */
     private fun Group.int(vararg candidates: String): Int? =
         candidates.firstNotNullOfOrNull { name ->
@@ -1274,8 +1318,10 @@ class QueryIndexLoader(
     /**
      * Extracts the repeated double values for the first field name that exists on the Group.
      *
-     * @param candidates One or more candidate field names to check; the function uses the first candidate that is present and returns all its repeated double values.
-     * @return A list of doubles read from the first present candidate field, or an empty list if none of the candidates exist.
+     * @param candidates One or more candidate field names to check; the function uses the first candidate that
+     * is present and returns all its repeated double values.
+     * @return A list of doubles read from the first present candidate field, or an empty list if none of the
+     * candidates exist.
      */
     private fun Group.doubleList(vararg candidates: String): List<Double> =
         candidates
@@ -1288,7 +1334,8 @@ class QueryIndexLoader(
     /**
      * Retrieves the sequence of string values from the first present repeated field among the given candidate names.
      *
-     * If multiple candidate field names are provided, the function returns the list of strings for the first candidate that exists in the Group. If none of the candidates exist, an empty list is returned.
+     * If multiple candidate field names are provided, the function returns the list of strings for the first
+     * candidate that exists in the Group. If none of the candidates exist, an empty list is returned.
      *
      * @param candidates Field names to probe in order of preference.
      * @return A list of strings from the first found repeated field, or an empty list if none are present.

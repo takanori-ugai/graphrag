@@ -38,7 +38,8 @@ interface WorkflowCallbacks {
      * Called when a workflow finishes to notify listeners of its outcome.
      *
      * @param name The workflow name.
-     * @param result The workflow's outcome, containing the resulting value (nullable) and a `stop` flag indicating whether subsequent workflows should be halted.
+     * @param result The workflow's outcome, containing the resulting value (nullable) and a `stop` flag
+     * indicating whether subsequent workflows should be halted.
      */
     fun workflowEnd(
         name: String,
@@ -48,7 +49,8 @@ interface WorkflowCallbacks {
     /**
      * Receives progress updates during workflow execution.
      *
-     * The default implementation performs no action; implementations may override to report or react to progress (for example, percentage complete, messages, or stage information).
+     * The default implementation performs no action; implementations may override to report or react to
+     * progress (for example, percentage complete, messages, or stage information).
      *
      * @param progress Progress information reported by a workflow.
      */
