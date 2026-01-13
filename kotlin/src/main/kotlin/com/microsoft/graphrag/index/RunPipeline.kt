@@ -1,21 +1,26 @@
 package com.microsoft.graphrag.index
 
+import com.microsoft.graphrag.logger.Progress
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
-import kotlinx.serialization.builtins.ListSerializer
-import kotlinx.serialization.builtins.MapSerializer
-import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
 
+/**
+ * Execute a Pipeline and emit per-workflow run results as a Flow.
+ *
+ * When `isUpdateRun` is true, the run writes outputs under `config.updateOutputDir`, creates
+ * timestamped delta and previous backups, and records an update timestamp in the run state.
+ *
+ * @param callbacks Callback interface used for progress and workflow lifecycle notifications.
+ * @param isUpdateRun If true, run in update mode (produce a delta and backup previous output); otherwise perform a regular run.
+ * @param additionalContext Optional map merged into the pipeline run state under the key `"additional_context"`.
+ * @param inputDocumentsJson Optional JSON string of preloaded documents; when provided, it is written into the active output storage and the corresponding document-loading step is skipped.
+ * @return A Flow that emits a PipelineRunResult for each executed workflow. On error the Flow emits a single PipelineRunResult describing the failure (workflow name, current state, and error message).
+ */
 @Suppress("LongParameterList", "LongMethod", "TooGenericExceptionCaught")
 suspend fun runPipeline(
     pipeline: Pipeline,
@@ -89,7 +94,17 @@ suspend fun runPipeline(
         val start = System.nanoTime()
         try {
             dumpJson(context)
-            for ((name, fn) in pipeline.run().filterNot { it.first in stepsToSkip }) {
+            val workflows = pipeline.run().filterNot { it.first in stepsToSkip }.toList()
+            val totalWorkflows = workflows.size
+            for ((idx, pair) in workflows.withIndex()) {
+                val (name, fn) = pair
+                context.callbacks.progress(
+                    Progress(
+                        description = "pipeline ",
+                        totalItems = totalWorkflows,
+                        completedItems = idx,
+                    ),
+                )
                 lastWorkflow = name
                 callbacks.workflowStart(name)
                 val wStart = System.nanoTime()
@@ -108,6 +123,13 @@ suspend fun runPipeline(
                     break
                 }
             }
+            callbacks.progress(
+                Progress(
+                    description = "pipeline ",
+                    totalItems = totalWorkflows,
+                    completedItems = totalWorkflows,
+                ),
+            )
             context.stats.totalRuntime = secondsSince(start)
             dumpJson(context)
         } catch (t: Throwable) {
@@ -124,12 +146,31 @@ suspend fun runPipeline(
         }
     }
 
+/**
+ * Load the persisted pipeline run state from `context.json` in the given storage.
+ *
+ * If `context.json` is not present, returns an empty map. When present, decodes the JSON
+ * using StateCodec and returns the resulting state map.
+ *
+ * @param storage The storage to read `context.json` from.
+ * @return A map of state keys to values, or an empty map if no persisted state exists.
+ */
 private suspend fun loadExistingState(storage: PipelineStorage): Map<String, Any?> {
     val stateJson = storage.get("context.json") ?: return emptyMap()
-    val elementMap = Json.decodeFromString(stateSerializer, stateJson)
-    return decodeState(elementMap).toMutableMap()
+    val elementMap: Map<String, kotlinx.serialization.json.JsonElement> = Json.decodeFromString(StateCodec.stateSerializer, stateJson)
+    return StateCodec.decodeState(elementMap).toMutableMap()
 }
 
+/**
+ * Persists the current run statistics and state to the configured output storage.
+ *
+ * Writes a pretty-printed `stats.json` derived from `context.stats`, and writes a pretty-printed
+ * `context.json` representing `context.state`. The `"additional_context"` entry is temporarily
+ * removed from `context.state` before writing `context.json` and restored afterward so it is not
+ * persisted.
+ *
+ * @param context PipelineRunContext whose `stats` and `state` will be serialized to the output storage.
+ */
 private suspend fun dumpJson(context: PipelineRunContext) {
     val statsSnapshot = StatsSnapshot(context.stats.workflows, context.stats.totalRuntime)
     val statsJson = Json { prettyPrint = true }.encodeToString(statsSnapshot)
@@ -137,7 +178,7 @@ private suspend fun dumpJson(context: PipelineRunContext) {
 
     val temp = context.state.remove("additional_context")
     try {
-        val stateJson = Json { prettyPrint = true }.encodeToString(stateSerializer, encodeState(context.state))
+        val stateJson = Json { prettyPrint = true }.encodeToString(StateCodec.stateSerializer, StateCodec.encodeState(context.state))
         context.outputStorage.set("context.json", stateJson)
     } finally {
         if (temp != null) {
@@ -158,6 +199,15 @@ private fun timestamp(): String =
         .ofPattern("yyyyMMdd-HHmmss")
         .format(java.time.LocalDateTime.now())
 
+/**
+ * Copy all `.parquet` and `.json` files from the source storage into the destination storage.
+ *
+ * Files are discovered by their relative paths and written to the destination using the same relative paths.
+ * Files that cannot be read from the source are skipped.
+ *
+ * @param storage Source PipelineStorage to read files from.
+ * @param copyStorage Destination PipelineStorage to write copied files into.
+ */
 private suspend fun copyPreviousOutput(
     storage: PipelineStorage,
     copyStorage: PipelineStorage,
@@ -168,198 +218,6 @@ private suspend fun copyPreviousOutput(
             copyStorage.set(relative, content)
         }
     }
-}
-
-/**
- * Basic serializer for Map<String, Any?> to avoid depending on a full JSON tree library.
- */
-private val stateSerializer = MapSerializer(String.serializer(), JsonElement.serializer())
-
-private fun encodeState(state: Map<String, Any?>): Map<String, JsonElement> {
-    val json = Json { prettyPrint = false }
-    val result = mutableMapOf<String, JsonElement>()
-    state.forEach { (key, value) ->
-        when (value) {
-            null -> {
-                result[key] = JsonNull
-            }
-
-            is List<*> -> {
-                when {
-                    value.all { it is DocumentChunk } -> {
-                        result[key] =
-                            json.encodeToJsonElement(ListSerializer(DocumentChunk.serializer()), value.filterIsInstance<DocumentChunk>())
-                    }
-
-                    value.all { it is TextUnit } -> {
-                        result[key] = json.encodeToJsonElement(ListSerializer(TextUnit.serializer()), value.filterIsInstance<TextUnit>())
-                    }
-
-                    value.all { it is Entity } -> {
-                        result[key] = json.encodeToJsonElement(ListSerializer(Entity.serializer()), value.filterIsInstance<Entity>())
-                    }
-
-                    value.all { it is Relationship } -> {
-                        result[key] =
-                            json.encodeToJsonElement(ListSerializer(Relationship.serializer()), value.filterIsInstance<Relationship>())
-                    }
-
-                    value.all { it is Claim } -> {
-                        result[key] = json.encodeToJsonElement(ListSerializer(Claim.serializer()), value.filterIsInstance<Claim>())
-                    }
-
-                    value.all { it is TextEmbedding } -> {
-                        result[key] =
-                            json.encodeToJsonElement(ListSerializer(TextEmbedding.serializer()), value.filterIsInstance<TextEmbedding>())
-                    }
-
-                    value.all { it is EntityEmbedding } -> {
-                        result[key] =
-                            json.encodeToJsonElement(
-                                ListSerializer(EntityEmbedding.serializer()),
-                                value.filterIsInstance<EntityEmbedding>(),
-                            )
-                    }
-
-                    value.all { it is CommunityAssignment } -> {
-                        result[key] =
-                            json.encodeToJsonElement(
-                                ListSerializer(CommunityAssignment.serializer()),
-                                value.filterIsInstance<CommunityAssignment>(),
-                            )
-                    }
-
-                    value.all { it is CommunityReport } -> {
-                        result[key] =
-                            json.encodeToJsonElement(
-                                ListSerializer(CommunityReport.serializer()),
-                                value.filterIsInstance<CommunityReport>(),
-                            )
-                    }
-
-                    value.all { it is EntitySummary } -> {
-                        result[key] =
-                            json.encodeToJsonElement(ListSerializer(EntitySummary.serializer()), value.filterIsInstance<EntitySummary>())
-                    }
-                }
-            }
-
-            is Map<*, *> -> {
-                // Only serialize primitive map structures (e.g., community hierarchy)
-                if (value.keys.all { it is Int } && value.values.all { it is Int }) {
-                    @Suppress("UNCHECKED_CAST")
-                    result[key] = json.encodeToJsonElement(MapSerializer(Int.serializer(), Int.serializer()), value as Map<Int, Int>)
-                } else if (value.keys.all { it is String } && value.values.all { it is String }) {
-                    @Suppress("UNCHECKED_CAST")
-                    result[key] =
-                        json.encodeToJsonElement(MapSerializer(String.serializer(), String.serializer()), value as Map<String, String>)
-                }
-            }
-
-            is String -> {
-                result[key] = JsonPrimitive(value)
-            }
-
-            is Number -> {
-                result[key] = JsonPrimitive(value)
-            }
-
-            is Boolean -> {
-                result[key] = JsonPrimitive(value)
-            }
-
-            else -> {
-                // skip non-serializable state entries (e.g., graph instances)
-            }
-        }
-    }
-    return result
-}
-
-private fun decodeState(encoded: Map<String, JsonElement>): Map<String, Any?> {
-    val json = Json { ignoreUnknownKeys = true }
-    val out = mutableMapOf<String, Any?>()
-    encoded.forEach { (key, value) ->
-        when (key) {
-            "chunks" -> {
-                if (value is JsonArray) {
-                    out[key] = json.decodeFromJsonElement(ListSerializer(DocumentChunk.serializer()), value)
-                }
-            }
-
-            "text_units" -> {
-                if (value is JsonArray) {
-                    out[key] = json.decodeFromJsonElement(ListSerializer(TextUnit.serializer()), value)
-                }
-            }
-
-            "entities" -> {
-                if (value is JsonArray) {
-                    out[key] = json.decodeFromJsonElement(ListSerializer(Entity.serializer()), value)
-                }
-            }
-
-            "relationships" -> {
-                if (value is JsonArray) {
-                    out[key] = json.decodeFromJsonElement(ListSerializer(Relationship.serializer()), value)
-                }
-            }
-
-            "claims" -> {
-                if (value is JsonArray) {
-                    out[key] = json.decodeFromJsonElement(ListSerializer(Claim.serializer()), value)
-                }
-            }
-
-            "text_embeddings" -> {
-                if (value is JsonArray) {
-                    out[key] = json.decodeFromJsonElement(ListSerializer(TextEmbedding.serializer()), value)
-                }
-            }
-
-            "entity_embeddings" -> {
-                if (value is JsonArray) {
-                    out[key] = json.decodeFromJsonElement(ListSerializer(EntityEmbedding.serializer()), value)
-                }
-            }
-
-            "communities" -> {
-                if (value is JsonArray) {
-                    out[key] = json.decodeFromJsonElement(ListSerializer(CommunityAssignment.serializer()), value)
-                }
-            }
-
-            "community_reports" -> {
-                if (value is JsonArray) {
-                    out[key] = json.decodeFromJsonElement(ListSerializer(CommunityReport.serializer()), value)
-                }
-            }
-
-            "entity_summaries" -> {
-                if (value is JsonArray) {
-                    out[key] = json.decodeFromJsonElement(ListSerializer(EntitySummary.serializer()), value)
-                }
-            }
-
-            "community_hierarchy" -> {
-                if (value is JsonObject) {
-                    out[key] = json.decodeFromJsonElement(MapSerializer(Int.serializer(), Int.serializer()), value)
-                }
-            }
-
-            "additional_context" -> {
-                if (value is JsonObject) {
-                    val map = value.mapValues { it.value.toString() }
-                    out[key] = map
-                }
-            }
-
-            else -> {
-                // leave unsupported keys out; non-serializable entries (like graphs) are not persisted
-            }
-        }
-    }
-    return out
 }
 
 @kotlinx.serialization.Serializable

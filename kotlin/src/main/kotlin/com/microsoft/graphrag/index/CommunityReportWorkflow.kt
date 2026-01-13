@@ -71,6 +71,12 @@ class CommunityReportWorkflow(
         return reduced.ifBlank { buildFallbackSummary(communityId, entities, relationships, claims) }
     }
 
+    /**
+     * Builds a CSV table of entities with columns "id", "entity", and "description".
+     *
+     * @param entities List of entities to include; each row uses a 1-based index as the `id`, the entity's `name` as `entity`, and the entity's `type` (or `"entity"` when blank) as `description`. All values are escaped for CSV.
+     * @return A string containing the CSV header and one row per entity.
+     */
     private fun buildEntitiesTable(entities: List<Entity>): String =
         buildString {
             appendLine("id,entity,description")
@@ -80,6 +86,14 @@ class CommunityReportWorkflow(
             }
         }
 
+    /**
+     * Build a CSV table of relationships with header "id,source,target,description".
+     *
+     * Each relationship becomes a row where `id` is a 1-based row index, `source` and `target` are the relationship endpoint IDs, and `description` is the relationship description or, if absent, the relationship type.
+     *
+     * @param relationships The relationships to include as CSV rows.
+     * @return The CSV string containing the header and one row per relationship.
+     */
     private fun buildRelationshipsTable(relationships: List<Relationship>): String =
         buildString {
             appendLine("id,source,target,description")
@@ -91,6 +105,14 @@ class CommunityReportWorkflow(
             }
         }
 
+    /**
+     * Builds a CSV-formatted section listing text units with the headers `text_unit_id,chunk_id,text`.
+     *
+     * Each text unit produces one row; the `text` field is truncated to 500 characters and all fields are CSV-escaped.
+     *
+     * @param textUnits The list of text units to include as rows.
+     * @return A CSV string containing the header line followed by one row per text unit.
+     */
     private fun buildTextUnitsSection(textUnits: List<TextUnit>): String =
         buildString {
             appendLine("text_unit_id,chunk_id,text")
@@ -273,6 +295,14 @@ class CommunityReportWorkflow(
         }
     }
 
+    /**
+     * Builds a CSV table of claims including a header row and one row per claim.
+     *
+     * Each field is escaped for CSV and rows are newline-separated. The header is:
+     * "subject,object,type,status,start_date,end_date,description".
+     *
+     * @return The resulting CSV string with a header and one line per claim.
+     */
     private fun buildClaimsTable(claims: List<Claim>): String =
         buildString {
             appendLine("subject,object,type,status,start_date,end_date,description")
@@ -285,6 +315,15 @@ class CommunityReportWorkflow(
             }
         }
 
+    /**
+     * Escapes a string so it is safe to include as a CSV field.
+     *
+     * Replaces newline characters with spaces; if the result contains a comma or a quote,
+     * wraps the value in double quotes and doubles any internal double quotes.
+     *
+     * @param value The input string to escape.
+     * @return The escaped string suitable for CSV output.
+     */
     private fun escapeCsv(value: String): String {
         val cleaned = value.replace("\n", " ")
         return if (cleaned.contains(",") || cleaned.contains("\"")) {
@@ -294,6 +333,13 @@ class CommunityReportWorkflow(
         }
     }
 
+    /**
+     * Selects prior reports whose parentCommunityId matches the given community.
+     *
+     * @param communityId ID of the community to match.
+     * @param priorReports List of prior community reports to filter.
+     * @return A list of prior reports with `parentCommunityId` equal to the given `communityId`.
+     */
     private fun subReportsForCommunity(
         communityId: Int,
         priorReports: List<CommunityReport>,

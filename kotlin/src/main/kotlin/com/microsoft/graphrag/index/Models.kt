@@ -6,6 +6,14 @@ import com.fasterxml.jackson.annotation.JsonProperty
 import kotlinx.serialization.Serializable
 
 @Serializable
+data class Covariate(
+    val id: String,
+    val subjectId: String,
+    val covariateType: String = "covariate",
+    val attributes: Map<String, String> = emptyMap(),
+)
+
+@Serializable
 data class DocumentChunk(
     val id: String,
     val sourcePath: String,
@@ -18,6 +26,12 @@ data class Entity(
     val name: String,
     val type: String,
     val sourceChunkId: String,
+    val description: String? = null,
+    val rank: Double? = 1.0,
+    val shortId: String? = null,
+    val communityIds: List<Int> = emptyList(),
+    val textUnitIds: List<String> = emptyList(),
+    val attributes: Map<String, String> = emptyMap(),
 )
 
 @Serializable
@@ -27,6 +41,12 @@ data class Relationship(
     val type: String,
     val description: String? = null,
     val sourceChunkId: String,
+    val weight: Double? = 1.0,
+    val rank: Double? = 1.0,
+    val attributes: Map<String, String> = emptyMap(),
+    val shortId: String? = null,
+    val id: String? = null,
+    val textUnitIds: List<String> = emptyList(),
 )
 
 @Serializable
@@ -38,6 +58,12 @@ data class TextEmbedding(
 @Serializable
 data class EntityEmbedding(
     val entityId: String,
+    val vector: List<Double>,
+)
+
+@Serializable
+data class CommunityReportEmbedding(
+    val communityId: Int,
     val vector: List<Double>,
 )
 
@@ -58,6 +84,12 @@ data class CommunityReport(
     val communityId: Int,
     val summary: String,
     val parentCommunityId: Int? = null,
+    val id: String? = null,
+    val title: String? = null,
+    val rank: Double? = 1.0,
+    val fullContent: String? = null,
+    val shortId: String? = null,
+    val attributes: Map<String, String> = emptyMap(),
 )
 
 // Both kotlinx (for internal encoding) and Jackson (for LangChain4j responses) are needed here.

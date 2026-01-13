@@ -5,6 +5,8 @@ import com.microsoft.graphrag.index.WorkflowCallbacks
 import com.microsoft.graphrag.index.WorkflowResult
 import com.microsoft.graphrag.index.defaultPipeline
 import com.microsoft.graphrag.index.runPipeline
+import com.microsoft.graphrag.logger.Progress
+import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.runBlocking
 import java.nio.file.Files
 import java.nio.file.Path
@@ -57,14 +59,45 @@ fun main() {
 }
 
 private class LoggingCallbacks : WorkflowCallbacks {
+    /**
+     * Signals the start of a workflow and logs the workflow name.
+     *
+     * @param name The name of the workflow that is starting.
+     */
     override fun workflowStart(name: String) {
-        println("Starting workflow: $name")
+        logger.info { "Starting workflow: $name" }
     }
 
+    /**
+     * Records the completion of the workflow by logging its name and stop reason.
+     *
+     * @param name The workflow's name.
+     * @param result The workflow result containing completion details, including the `stop` indicator.
+     */
     override fun workflowEnd(
         name: String,
         result: WorkflowResult,
     ) {
-        println("Finished workflow: $name (stop=${result.stop})")
+        logger.info { "Finished workflow: $name (stop=${result.stop})" }
+    }
+
+    /**
+     * Logs the progress description along with completed and total item counts.
+     *
+     * The description defaults to "progress" if null, and both completed and total counts
+     * default to 0 when absent. The message is emitted via the class logger in the format:
+     * "<description>: <completed>/<total>".
+     *
+     * @param progress Progress data containing an optional description, completedItems, and totalItems.
+     */
+    override fun progress(progress: Progress) {
+        val desc = progress.description ?: "progress"
+        val complete = progress.completedItems ?: 0
+        val total = progress.totalItems ?: 0
+        logger.info { "$desc: $complete/$total" }
+    }
+
+    companion object {
+        private val logger = KotlinLogging.logger {}
     }
 }

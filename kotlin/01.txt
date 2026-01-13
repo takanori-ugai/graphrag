@@ -1,0 +1,4 @@
+
+I am converting python program into kotlin. Original python program exists in ../graphrag/ . I am tackling query part now. Please complete the task by following ToDo.txt. Run ./gradlew build to verify the code and run ./gradlew ktlintFormat to fix ktlint error.
+
+I am converting python program into kotlin. Original python program exists in ../graphrag/ . I am tackling query part now. Investigate python original program and kotin program. Identify the gaps. Update ToDo.txt with the identified gaps.
