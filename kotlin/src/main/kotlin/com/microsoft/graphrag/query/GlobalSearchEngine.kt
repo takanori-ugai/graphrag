@@ -4,6 +4,8 @@ import com.knuddels.jtokkit.Encodings
 import com.knuddels.jtokkit.api.Encoding
 import com.knuddels.jtokkit.api.EncodingType
 import com.microsoft.graphrag.index.CommunityReport
+import dev.langchain4j.data.message.SystemMessage
+import dev.langchain4j.data.message.UserMessage
 import dev.langchain4j.model.chat.response.ChatResponse
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel
@@ -75,7 +77,7 @@ class GlobalSearchEngine(
     private val callbacks: List<QueryCallbacks> = emptyList(),
     private val mapSystemPrompt: String = DEFAULT_MAP_SYSTEM_PROMPT,
     private val reduceSystemPrompt: String = DEFAULT_REDUCE_SYSTEM_PROMPT,
-    private val responseType: String = "multiple paragraphs",
+    private val responseType: String = "JSON response (response, score, follow_up_queries)",
     private val allowGeneralKnowledge: Boolean = false,
     private val generalKnowledgeInstruction: String = DEFAULT_GENERAL_KNOWLEDGE_INSTRUCTION,
     private val ratingPrompt: String = DEFAULT_COMMUNITY_RATING_PROMPT,
@@ -84,7 +86,7 @@ class GlobalSearchEngine(
     private val maxContextTokens: Int = 8_000,
     private val maxDataTokens: Int = maxContextTokens,
     private val mapParams: ModelParams = ModelParams(jsonResponse = true),
-    private val reduceParams: ModelParams = ModelParams(jsonResponse = false),
+    private val reduceParams: ModelParams = ModelParams(jsonResponse = true),
     private val encoding: Encoding = Encodings.newLazyEncodingRegistry().getEncoding(EncodingType.CL100K_BASE),
 ) {
     /**
@@ -393,7 +395,7 @@ class GlobalSearchEngine(
         val ratings = mutableListOf<Int>()
         repeat(dynamicNumRepeats.coerceAtLeast(1)) {
             promptTokens += tokenCount(prompt)
-            val answer = streamAnswer(prompt)
+            val answer = streamAnswer(prompt, question)
             outputTokens += tokenCount(answer)
             val rating =
                 runCatching {
@@ -438,8 +440,7 @@ class GlobalSearchEngine(
                     if (mapParams.jsonResponse) "$base\nReturn ONLY valid JSON per the schema above." else base
                 }
         val promptTokens = tokenCount(prompt)
-        val fullPrompt = "$prompt\n\nUser question: $question"
-        val answerText = streamAnswer(fullPrompt)
+        val answerText = streamAnswer(prompt, question)
         val outputTokens = tokenCount(answerText)
         return QueryResult(
             answer = answerText,
@@ -522,18 +523,20 @@ class GlobalSearchEngine(
                     if (reduceParams.jsonResponse) "$base\nReturn ONLY valid JSON per the schema above." else base
                 }
         val promptTokens = tokenCount(reducePrompt)
-        val fullPrompt = "$reducePrompt\n\nUser question: $question"
         callbacks.forEach { it.onReduceResponseStart(contextText) }
-        val answerText = streamAnswer(fullPrompt)
-        val outputTokens = tokenCount(answerText)
+        val answerText = streamAnswer(reducePrompt, question)
+        val parsed = JsonAnswerParser.parse(answerText)
+        val outputTokens = tokenCount(parsed.raw)
         callbacks.forEach { it.onReduceResponseEnd(answerText) }
         return QueryResult(
-            answer = answerText,
+            answer = parsed.raw,
             context = emptyList(),
             contextRecords = emptyMap(),
             llmCalls = 1,
             promptTokens = promptTokens,
             outputTokens = outputTokens,
+            followUpQueries = parsed.followUps,
+            score = parsed.score,
             llmCallsCategories = mapOf("reduce" to 1),
             promptTokensCategories = mapOf("reduce" to promptTokens),
             outputTokensCategories = mapOf("reduce" to outputTokens),
@@ -629,11 +632,17 @@ class GlobalSearchEngine(
      * @param prompt The text prompt to send to the streaming model.
      * @return The concatenated full response produced by the streaming model.
      */
-    private suspend fun streamAnswer(prompt: String): String {
+    private suspend fun streamAnswer(
+        systemPrompt: String,
+        userMessage: String,
+    ): String {
         val builder = StringBuilder()
         val future = CompletableFuture<String>()
         streamingModel.chat(
-            prompt,
+            listOf(
+                SystemMessage(systemPrompt),
+                UserMessage(userMessage),
+            ),
             object : StreamingChatResponseHandler {
                 override fun onPartialResponse(partialResponse: String) {
                     builder.append(partialResponse)
@@ -719,10 +728,12 @@ class GlobalSearchEngine(
                         if (reduceParams.jsonResponse) "$base\nReturn ONLY valid JSON per the schema above." else base
                     }
             callbacks.forEach { it.onReduceResponseStart(contextText) }
-            val fullPrompt = "$reducePrompt\n\nUser question: $question"
             val builder = StringBuilder()
             streamingModel.chat(
-                fullPrompt,
+                listOf(
+                    SystemMessage(reducePrompt),
+                    UserMessage(question),
+                ),
                 object : StreamingChatResponseHandler {
                     override fun onPartialResponse(partialResponse: String) {
                         builder.append(partialResponse)
@@ -835,9 +846,7 @@ class GlobalSearchEngine(
 
             If you don't know the answer or if the provided reports do not contain sufficient information to provide an answer, just say so. Do not make anything up.
 
-            The final response should remove all irrelevant information from the analysts' reports and merge the cleaned information into a comprehensive answer that provides explanations of all the key points and implications appropriate for the response length and format.
-
-            Add sections and commentary to the response as appropriate for the length and format. Style the response in markdown.
+The final response should remove all irrelevant information from the analysts' reports and merge the cleaned information into a comprehensive answer that provides explanations of all the key points and implications appropriate for the response length and format.
 
             The response shall preserve the original meaning and use of modal verbs such as "shall", "may" or "will".
 
@@ -856,12 +865,24 @@ class GlobalSearchEngine(
 
             Limit your response length to {max_length} words.
 
-            ---Target response length and format---
+---Target response length and format---
 
-            {response_type}
+{response_type}
+
+---Response format---
+
+Return a single JSON object with the following keys:
+{
+  "response": "<answer in markdown>",
+  "score": <integer 0-100>,
+  "follow_up_queries": ["<question 1>", "<question 2>"]
+}
+
+Put your answer in the "response" field, formatted in markdown. If you don't know the answer, say so in the "response" field.
+Use a best-effort score and include up to five follow-up queries relevant to the user's question. If not applicable, use 0 and [].
 
 
-            ---Analyst Reports---
+---Analyst Reports---
 
             {report_data}
 
@@ -893,11 +914,21 @@ class GlobalSearchEngine(
 
             Limit your response length to {max_length} words.
 
-            ---Target response length and format---
+---Target response length and format---
 
-            {response_type}
+{response_type}
 
-            Add sections and commentary to the response as appropriate for the length and format. Style the response in markdown.
+---Response format---
+
+Return a single JSON object with the following keys:
+{
+  "response": "<answer in markdown>",
+  "score": <integer 0-100>,
+  "follow_up_queries": ["<question 1>", "<question 2>"]
+}
+
+Put your answer in the "response" field, formatted in markdown. If you don't know the answer, say so in the "response" field.
+Use a best-effort score and include up to five follow-up queries relevant to the user's question. If not applicable, use 0 and [].
             """.trimIndent()
 
         internal val DEFAULT_GENERAL_KNOWLEDGE_INSTRUCTION: String =

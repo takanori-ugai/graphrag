@@ -35,7 +35,7 @@ fun main() =
         val index = QueryIndexLoader(indexDir).load()
 
         val question = "Summarize key entities and relationships in the sample index."
-        val responseType = "multiple paragraphs"
+        val responseType = "JSON response (response, score, follow_up_queries)"
 
         // Basic
         val basicResult =

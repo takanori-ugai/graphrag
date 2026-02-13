@@ -1,3 +1,4 @@
+
 ---Role---
 
 You are a helpful assistant responding to questions about data in the tables provided.
@@ -15,12 +16,12 @@ Each key point in the response should have the following element:
 - Importance Score: An integer score between 0-100 that indicates how important the point is in answering the user's question. An 'I don't know' type of response should have a score of 0.
 
 The response should be JSON formatted as follows:
-{
+{{
     "points": [
-        {"description": "Description of point 1 [Data: Reports (report ids)]", "score": score_value},
-        {"description": "Description of point 2 [Data: Reports (report ids)]", "score": score_value}
+        {{"description": "Description of point 1 [Data: Reports (report ids)]", "score": score_value}},
+        {{"description": "Description of point 2 [Data: Reports (report ids)]", "score": score_value}}
     ]
-}
+}}
 
 The response shall preserve the original meaning and use of modal verbs such as "shall", "may" or "will".
 
@@ -70,9 +71,9 @@ Do not include information where the supporting evidence for it is not provided.
 Limit your response length to {max_length} words.
 
 The response should be JSON formatted as follows:
-{
+{{
     "points": [
-        {"description": "Description of point 1 [Data: Reports (report ids)]", "score": score_value},
-        {"description": "Description of point 2 [Data: Reports (report ids)]", "score": score_value}
+        {{"description": "Description of point 1 [Data: Reports (report ids)]", "score": score_value}},
+        {{"description": "Description of point 2 [Data: Reports (report ids)]", "score": score_value}}
     ]
-}
+}}

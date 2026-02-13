@@ -4,6 +4,8 @@ import com.knuddels.jtokkit.Encodings
 import com.knuddels.jtokkit.api.Encoding
 import com.knuddels.jtokkit.api.EncodingType
 import com.microsoft.graphrag.index.CommunityReport
+import dev.langchain4j.data.message.SystemMessage
+import dev.langchain4j.data.message.UserMessage
 import dev.langchain4j.model.chat.response.ChatResponse
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel
@@ -242,10 +244,10 @@ class DriftSearchEngine(
     private val localQueryEngine: LocalQueryEngine,
     private val primerSystemPrompt: String = DEFAULT_DRIFT_PRIMER_PROMPT,
     private val reduceSystemPrompt: String = DEFAULT_DRIFT_REDUCE_PROMPT,
-    private val responseType: String = "multiple paragraphs",
+    private val responseType: String = "JSON response (response, score, follow_up_queries)",
     private val callbacks: List<QueryCallbacks> = emptyList(),
     private val primerParams: ModelParams = ModelParams(jsonResponse = true),
-    private val reduceParams: ModelParams = ModelParams(jsonResponse = false),
+    private val reduceParams: ModelParams = ModelParams(jsonResponse = true),
     private val encoding: Encoding = Encodings.newLazyEncodingRegistry().getEncoding(EncodingType.CL100K_BASE),
     private val maxIterations: Int = 3,
 ) {
@@ -431,11 +433,13 @@ class DriftSearchEngine(
                     .let { base ->
                         if (reduceParams.jsonResponse) "$base\nReturn ONLY valid JSON per the schema above." else base
                     }
-            val fullPrompt = "$prompt\n\nUser question: $question"
             callbacks.forEach { it.onReduceResponseStart(contextText) }
             val reduceBuilder = StringBuilder()
             streamingModel.chat(
-                fullPrompt,
+                listOf(
+                    SystemMessage(prompt),
+                    UserMessage(question),
+                ),
                 object : StreamingChatResponseHandler {
                     override fun onPartialResponse(partialResponse: String) {
                         reduceBuilder.append(partialResponse)
@@ -479,13 +483,15 @@ class DriftSearchEngine(
                 .let { base ->
                     if (reduceParams.jsonResponse) "$base\nReturn ONLY valid JSON per the schema above." else base
                 }
-        val fullPrompt = "$prompt\n\nUser question: $question"
-        val promptTokens = encoding.countTokens(fullPrompt)
+        val promptTokens = encoding.countTokens(prompt)
         val builder = StringBuilder()
         val future = CompletableFuture<String>()
         callbacks.forEach { it.onReduceResponseStart(contextText) }
         streamingModel.chat(
-            fullPrompt,
+            listOf(
+                SystemMessage(prompt),
+                UserMessage(question),
+            ),
             object : StreamingChatResponseHandler {
                 override fun onPartialResponse(partialResponse: String) {
                     builder.append(partialResponse)
@@ -501,16 +507,19 @@ class DriftSearchEngine(
             },
         )
         val answer = runCatching { future.await() }.getOrElse { "" }
-        val outputTokens = encoding.countTokens(answer)
+        val parsed = JsonAnswerParser.parse(answer)
+        val outputTokens = encoding.countTokens(parsed.raw)
         callbacks.forEach { it.onReduceResponseEnd(answer) }
         return QueryResult(
-            answer = answer,
+            answer = parsed.raw,
             context = emptyList(),
             contextRecords = emptyMap(),
             contextText = contextText,
             llmCalls = 1,
             promptTokens = promptTokens,
             outputTokens = outputTokens,
+            followUpQueries = parsed.followUps,
+            score = parsed.score,
             llmCallsCategories = mapOf("reduce" to 1),
             promptTokensCategories = mapOf("reduce" to promptTokens),
             outputTokensCategories = mapOf("reduce" to outputTokens),
@@ -734,11 +743,23 @@ class DriftSearchEngine(
 
             {context_data}
 
-            ---Target response length and format---
+---Target response length and format---
 
-            {response_type}
+{response_type}
 
-            Add sections and commentary to the response as appropriate for the length and format. Style the response in markdown. Now answer the following query using the data above:
+---Response format---
+
+Return a single JSON object with the following keys:
+{
+  "response": "<answer in markdown>",
+  "score": <integer 0-100>,
+  "follow_up_queries": ["<question 1>", "<question 2>"]
+}
+
+Put your answer in the "response" field, formatted in markdown. If you don't know the answer, say so in the "response" field.
+Use a best-effort score and include up to five follow-up queries relevant to the user's question. If not applicable, use 0 and [].
+
+Now answer the following query using the data above:
             """.trimIndent()
     }
 }

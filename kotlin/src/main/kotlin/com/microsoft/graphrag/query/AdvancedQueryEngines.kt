@@ -16,6 +16,8 @@ import com.microsoft.graphrag.index.TextEmbedding
 import com.microsoft.graphrag.index.TextUnit
 import com.microsoft.graphrag.query.LocalSearchContextBuilder.ConversationHistory
 import com.microsoft.graphrag.query.QueryCallbacks
+import dev.langchain4j.data.message.SystemMessage as ChatSystemMessage
+import dev.langchain4j.data.message.UserMessage as ChatUserMessage
 import dev.langchain4j.model.chat.response.ChatResponse
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler
 import dev.langchain4j.model.embedding.EmbeddingModel
@@ -125,16 +127,16 @@ class LocalQueryEngine(
             } else {
                 promptBase
             }
-        val finalPrompt = "$promptWithJson\n\nUser question: $question"
         callbacks.forEach { it.onContext(contextResult.contextRecords) }
-        val parsed = generate(finalPrompt)
-        val promptTokens = encoding.countTokens(finalPrompt)
-        val answerTokens = encoding.countTokens(parsed.answer)
+        val parsed = generate(promptWithJson, question)
+        val promptTokens = encoding.countTokens(promptWithJson)
+        val answerText = if (modelParams.jsonResponse) parsed.raw else parsed.response
+        val answerTokens = encoding.countTokens(answerText)
         val llmCallsCategories = mapOf("response" to 1, "build_context" to contextResult.llmCalls)
         val promptTokensCategories = mapOf("response" to promptTokens, "build_context" to contextResult.promptTokens)
         val outputTokensCategories = mapOf("response" to answerTokens, "build_context" to contextResult.outputTokens)
         return QueryResult(
-            answer = parsed.answer,
+            answer = answerText,
             context = contextResult.contextChunks,
             contextRecords = contextResult.contextRecords.toImmutableContextRecords(),
             followUpQueries = parsed.followUps,
@@ -217,11 +219,17 @@ class LocalQueryEngine(
      * @return A ParsedAnswer representing the final parsed response (including any follow-up queries or score
      * if present).
      */
-    private suspend fun generate(prompt: String): ParsedAnswer {
+    private suspend fun generate(
+        systemPrompt: String,
+        userMessage: String,
+    ): ParsedAnswer {
         val builder = StringBuilder()
         val future = CompletableFuture<String>()
         streamingModel.chat(
-            prompt,
+            listOf(
+                ChatSystemMessage(systemPrompt),
+                ChatUserMessage(userMessage),
+            ),
             object : StreamingChatResponseHandler {
                 override fun onPartialResponse(partialResponse: String) {
                     builder.append(partialResponse)
@@ -289,10 +297,12 @@ class LocalQueryEngine(
                     promptBase
                 }
             callbacks.forEach { it.onContext(contextResult.contextRecords) }
-            val finalPrompt = "$promptWithJson\n\nUser question: $question"
             val builder = StringBuilder()
             streamingModel.chat(
-                finalPrompt,
+                listOf(
+                    ChatSystemMessage(promptWithJson),
+                    ChatUserMessage(question),
+                ),
                 object : StreamingChatResponseHandler {
                     override fun onPartialResponse(partialResponse: String) {
                         builder.append(partialResponse)
@@ -326,7 +336,7 @@ class LocalQueryEngine(
      * or a fallback containing the raw text otherwise.
      */
     private fun parseStructuredAnswer(raw: String): ParsedAnswer {
-        val fallback = ParsedAnswer(raw, emptyList(), null)
+        val fallback = ParsedAnswer(raw = raw, response = raw, followUps = emptyList(), score = null)
         return runCatching {
             val element = Json.parseToJsonElement(raw)
             val obj = element as? JsonObject ?: return fallback
@@ -336,12 +346,13 @@ class LocalQueryEngine(
                     ?.mapNotNull { it.jsonPrimitive.contentOrNull }
                     .orEmpty()
             val score = obj["score"]?.jsonPrimitive?.doubleOrNull
-            ParsedAnswer(response, followUps, score)
+            ParsedAnswer(raw = raw, response = response, followUps = followUps, score = score)
         }.getOrElse { fallback }
     }
 
     private data class ParsedAnswer(
-        val answer: String,
+        val raw: String,
+        val response: String,
         val followUps: List<String>,
         val score: Double?,
     )
@@ -658,6 +669,18 @@ Do not include information where the supporting evidence for it is not provided.
 
 {response_type}
 
+---Response format---
+
+Return a single JSON object with the following keys:
+{
+  "response": "<answer in markdown>",
+  "score": <integer 0-100>,
+  "follow_up_queries": ["<question 1>", "<question 2>"]
+}
+
+Put your answer in the "response" field, formatted in markdown. If you don't know the answer, say so in the "response" field.
+Use a best-effort score and include up to five follow-up queries relevant to the user's question. If not applicable, use 0 and [].
+
 
 ---Data tables---
 
@@ -689,7 +712,17 @@ Do not include information where the supporting evidence for it is not provided.
 
 {response_type}
 
-Add sections and commentary to the response as appropriate for the length and format. Style the response in markdown.
+---Response format---
+
+Return a single JSON object with the following keys:
+{
+  "response": "<answer in markdown>",
+  "score": <integer 0-100>,
+  "follow_up_queries": ["<question 1>", "<question 2>"]
+}
+
+Put your answer in the "response" field, formatted in markdown. If you don't know the answer, say so in the "response" field.
+Use a best-effort score and include up to five follow-up queries relevant to the user's question. If not applicable, use 0 and [].
     """.trimIndent()
 
 private val REDUCE_SYSTEM_PROMPT =
@@ -708,8 +741,6 @@ Note that the analysts' reports provided below are ranked in the **descending or
 If you don't know the answer or if the provided reports do not contain sufficient information to provide an answer, just say so. Do not make anything up.
 
 The final response should remove all irrelevant information from the analysts' reports and merge the cleaned information into a comprehensive answer that provides explanations of all the key points and implications appropriate for the response length and format.
-
-Add sections and commentary to the response as appropriate for the length and format. Style the response in markdown.
 
 The response shall preserve the original meaning and use of modal verbs such as "shall", "may" or "will".
 
@@ -731,6 +762,18 @@ Limit your response length to {max_length} words.
 ---Target response length and format---
 
 {response_type}
+
+---Response format---
+
+Return a single JSON object with the following keys:
+{
+  "response": "<answer in markdown>",
+  "score": <integer 0-100>,
+  "follow_up_queries": ["<question 1>", "<question 2>"]
+}
+
+Put your answer in the "response" field, formatted in markdown. If you don't know the answer, say so in the "response" field.
+Use a best-effort score and include up to five follow-up queries relevant to the user's question. If not applicable, use 0 and [].
 
 
 ---Analyst Reports---
@@ -769,7 +812,17 @@ Limit your response length to {max_length} words.
 
 {response_type}
 
-Add sections and commentary to the response as appropriate for the length and format. Style the response in markdown.
+---Response format---
+
+Return a single JSON object with the following keys:
+{
+  "response": "<answer in markdown>",
+  "score": <integer 0-100>,
+  "follow_up_queries": ["<question 1>", "<question 2>"]
+}
+
+Put your answer in the "response" field, formatted in markdown. If you don't know the answer, say so in the "response" field.
+Use a best-effort score and include up to five follow-up queries relevant to the user's question. If not applicable, use 0 and [].
     """.trimIndent()
 
 private val DRIFT_LOCAL_SYSTEM_PROMPT =
@@ -835,9 +888,11 @@ Pay close attention specifically to the Sources tables as it contains the most r
 
 Add sections and commentary to the response as appropriate for the length and format.
 
-Additionally provide a score between 0 and 100 representing how well the response addresses the overall research question: {global_query}. Based on your response, suggest up to five follow-up questions that could be asked to further explore the topic as it relates to the overall research question. Do not include scores or follow up questions in the 'response' field of the JSON, add them to the respective 'score' and 'follow_up_queries' keys of the JSON output. Format your response in JSON with the following keys and values:
+Additionally provide a score between 0 and 100 representing how well the response addresses the overall research question: {global_query}. Based on your response, suggest up to five follow-up questions that could be asked to further explore the topic as it relates to the overall research question. Do not include scores or follow up questions in the "response" field of the JSON, add them to the respective "score" and "follow_up_queries" keys of the JSON output. Format your response as JSON with the following shape:
 
-{{'response': str, Put your answer, formatted in markdown, here. Do not answer the global query in this section.
-'score': int,
-'follow_up_queries': List<String>}}
+{
+  "response": "<answer in markdown>",
+  "score": <integer 0-100>,
+  "follow_up_queries": ["<question 1>", "<question 2>"]
+}
     """.trimIndent()

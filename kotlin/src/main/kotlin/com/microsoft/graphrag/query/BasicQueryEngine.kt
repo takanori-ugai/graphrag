@@ -6,6 +6,8 @@ import com.knuddels.jtokkit.api.EncodingType
 import com.microsoft.graphrag.index.LocalVectorStore
 import com.microsoft.graphrag.index.TextEmbedding
 import com.microsoft.graphrag.index.TextUnit
+import dev.langchain4j.data.message.SystemMessage
+import dev.langchain4j.data.message.UserMessage
 import dev.langchain4j.model.chat.response.ChatResponse
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler
 import dev.langchain4j.model.embedding.EmbeddingModel
@@ -81,9 +83,9 @@ class BasicQueryEngine(
         callbacks.forEach { it.onContext(contextResult.contextRecords) }
         val prompt = buildPrompt(responseType, contextResult.contextText)
         val promptTokens = encoding.countTokens(prompt)
-        val fullPrompt = "$prompt\n\nUser question: $question"
-        val answerText = generate(fullPrompt)
-        val outputTokens = encoding.countTokens(answerText)
+        val answerText = generate(prompt, question)
+        val parsed = JsonAnswerParser.parse(answerText)
+        val outputTokens = encoding.countTokens(parsed.raw)
 
         val llmCallsCategories =
             mapOf(
@@ -102,10 +104,12 @@ class BasicQueryEngine(
             )
 
         return QueryResult(
-            answer = answerText,
+            answer = parsed.raw,
             context = contextResult.contextChunks,
             contextRecords = contextResult.contextRecords.toImmutableContextRecords(),
             contextText = contextResult.contextText,
+            followUpQueries = parsed.followUps,
+            score = parsed.score,
             llmCalls = llmCallsCategories.values.sum(),
             promptTokens = promptTokensCategories.values.sum(),
             outputTokens = outputTokensCategories.values.sum(),
@@ -140,9 +144,11 @@ class BasicQueryEngine(
                 )
             callbacks.forEach { it.onContext(contextResult.contextRecords) }
             val prompt = buildPrompt(responseType, contextResult.contextText)
-            val finalPrompt = "$prompt\n\nUser question: $question"
             streamingModel.chat(
-                finalPrompt,
+                listOf(
+                    SystemMessage(prompt),
+                    UserMessage(question),
+                ),
                 object : StreamingChatResponseHandler {
                     override fun onPartialResponse(partialResponse: String) {
                         callbacks.forEach { it.onLLMNewToken(partialResponse) }
@@ -202,11 +208,17 @@ class BasicQueryEngine(
      * @return The complete response text assembled from streamed tokens, or the literal `"No response
      * generated."` if generation failed.
      */
-    private suspend fun generate(prompt: String): String {
+    private suspend fun generate(
+        systemPrompt: String,
+        userMessage: String,
+    ): String {
         val builder = StringBuilder()
         val future = CompletableFuture<String>()
         streamingModel.chat(
-            prompt,
+            listOf(
+                SystemMessage(systemPrompt),
+                UserMessage(userMessage),
+            ),
             object : StreamingChatResponseHandler {
                 override fun onPartialResponse(partialResponse: String) {
                     builder.append(partialResponse)
@@ -270,11 +282,33 @@ Do not include information where the supporting evidence for it is not provided.
 
 {response_type}
 
+---Response format---
+
+Return a single JSON object with the following keys:
+{
+  "response": "<answer in markdown>",
+  "score": <integer 0-100>,
+  "follow_up_queries": ["<question 1>", "<question 2>"]
+}
+
+Put your answer in the "response" field, formatted in markdown. If you don't know the answer, say so in the "response" field.
+Use a best-effort score and include up to five follow-up queries relevant to the user's question. If not applicable, use 0 and [].
+
 
 ---Data tables---
 
 {context_data}
 
 
-Add sections and commentary to the response as appropriate for the length and format. Style the response in markdown.
+---Response format---
+
+Return a single JSON object with the following keys:
+{
+  "response": "<answer in markdown>",
+  "score": <integer 0-100>,
+  "follow_up_queries": ["<question 1>", "<question 2>"]
+}
+
+Put your answer in the "response" field, formatted in markdown. If you don't know the answer, say so in the "response" field.
+Use a best-effort score and include up to five follow-up queries relevant to the user's question. If not applicable, use 0 and [].
     """.trimIndent()

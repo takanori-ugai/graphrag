@@ -367,10 +367,10 @@ class QueryCommand : Runnable {
 
     @Option(
         names = ["--response-type"],
-        description = ["Desired response format (e.g. 'Single Sentence')."],
-        defaultValue = "Multiple Paragraphs",
+        description = ["Desired response format (e.g. 'JSON response (response, score, follow_up_queries)')."],
+        defaultValue = "JSON response (response, score, follow_up_queries)",
     )
-    var responseType: String = "Multiple Paragraphs"
+    var responseType: String = "JSON response (response, score, follow_up_queries)"
 
     @Option(
         names = ["--streaming"],
@@ -653,6 +653,18 @@ class QueryCommand : Runnable {
             println()
         } else {
             println(mergedResult.answer)
+        }
+        if (mergedResult.score != null || mergedResult.followUpQueries.isNotEmpty()) {
+            println()
+            if (mergedResult.score != null) {
+                println("Score: ${"%.2f".format(mergedResult.score)}")
+            }
+            if (mergedResult.followUpQueries.isNotEmpty()) {
+                println("Follow-up queries:")
+                mergedResult.followUpQueries.forEachIndexed { idx, q ->
+                    println("${idx + 1}. $q")
+                }
+            }
         }
         if (verbose && mergedResult.context.isNotEmpty()) {
             println("\nContext chunks used:")

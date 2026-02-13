@@ -1,16 +1,16 @@
 package com.microsoft.graphrag.index
 
+import com.fasterxml.jackson.databind.ObjectMapper
+import dev.langchain4j.data.message.ChatMessage
+import dev.langchain4j.data.message.UserMessage
 import dev.langchain4j.model.openai.OpenAiChatModel
-import dev.langchain4j.service.AiServices
 import io.github.oshai.kotlinlogging.KotlinLogging
 
 class ClaimsWorkflow(
     private val chatModel: OpenAiChatModel,
     private val prompts: PromptRepository = PromptRepository(),
+    private val objectMapper: ObjectMapper = ObjectMapper().findAndRegisterModules(),
 ) {
-    private val extractor =
-        AiServices.create(Extractor::class.java, chatModel)
-
     fun extractClaims(
         chunks: List<DocumentChunk>,
         entitySpecs: String = "ORGANIZATION,PERSON,GPE",
@@ -25,25 +25,48 @@ class ClaimsWorkflow(
                     .replace("{claim_description}", claimDescription)
                     .replace("{input_text}", chunk.text)
             val extracted =
-                runCatching { extractor.extractClaims(prompt) }.getOrElse {
+                runCatching {
+                    extractClaimsJson(prompt)
+                }.getOrElse {
                     logger.warn { "Failed to parse claims JSON: ${it.message}" }
                     emptyList()
                 }
-            logger.debug { "Claims structured response for chunk ${chunk.id}: $extracted" }
+            logger.debug { "Claims parsed for chunk ${chunk.id}: ${extracted.size}" }
             claims += extracted
         }
         return claims
     }
 
-    private interface Extractor {
-        @dev.langchain4j.service.SystemMessage(
-            "You are an intelligent assistant that helps a human analyst to analyze " +
-                "claims against certain entities presented in a text document.",
-        )
-        fun extractClaims(
-            @dev.langchain4j.service.UserMessage userMessage: String,
-        ): List<Claim>
+    private fun extractClaimsJson(prompt: String): List<Claim> {
+        val messages =
+            listOf<ChatMessage>(
+                UserMessage(prompt),
+            )
+        val response = chat(messages)
+        if (response.isBlank()) return emptyList()
+
+        val json = extractJsonArray(response) ?: return emptyList()
+        return runCatching {
+            objectMapper.readValue(json, Array<Claim>::class.java).toList()
+        }.getOrElse {
+            logger.warn { "Claims JSON decode failed: ${it.message}" }
+            emptyList()
+        }
     }
+
+    private fun extractJsonArray(text: String): String? {
+        val start = text.indexOf('[')
+        val end = text.lastIndexOf(']')
+        if (start == -1 || end == -1 || end <= start) return null
+        return text.substring(start, end + 1)
+    }
+
+    private fun chat(messages: List<ChatMessage>): String =
+        runCatching { chatModel.chat(messages).aiMessage().text() }
+            .getOrElse {
+                logger.warn { "Claim extraction chat failed: ${it.message}" }
+                ""
+            }
 
     companion object {
         private val logger = KotlinLogging.logger {}
