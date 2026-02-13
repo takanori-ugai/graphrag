@@ -16,8 +16,6 @@ import com.microsoft.graphrag.index.TextEmbedding
 import com.microsoft.graphrag.index.TextUnit
 import com.microsoft.graphrag.query.LocalSearchContextBuilder.ConversationHistory
 import com.microsoft.graphrag.query.QueryCallbacks
-import dev.langchain4j.data.message.SystemMessage as ChatSystemMessage
-import dev.langchain4j.data.message.UserMessage as ChatUserMessage
 import dev.langchain4j.model.chat.response.ChatResponse
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler
 import dev.langchain4j.model.embedding.EmbeddingModel
@@ -43,6 +41,8 @@ import kotlinx.serialization.json.jsonPrimitive
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.sqrt
+import dev.langchain4j.data.message.SystemMessage as ChatSystemMessage
+import dev.langchain4j.data.message.UserMessage as ChatUserMessage
 
 /**
  * Local search mirrors the Python local search by prioritizing entity-centric context (entity summaries if available,

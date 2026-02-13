@@ -11,7 +11,17 @@ import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
 
+/**
+ * Writes index artifacts to Parquet files.
+ */
+@Suppress("TooManyFunctions")
 class ParquetWriterHelper {
+    /**
+     * Writes entity records to a Parquet file.
+     *
+     * @param path Output file path.
+     * @param entities Entities to write.
+     */
     fun writeEntities(
         path: Path,
         entities: List<Entity>,
@@ -31,6 +41,12 @@ class ParquetWriterHelper {
         }
     }
 
+    /**
+     * Writes relationship records to a Parquet file.
+     *
+     * @param path Output file path.
+     * @param relationships Relationships to write.
+     */
     fun writeRelationships(
         path: Path,
         relationships: List<Relationship>,
@@ -52,6 +68,12 @@ class ParquetWriterHelper {
         }
     }
 
+    /**
+     * Writes text embeddings to a Parquet file.
+     *
+     * @param path Output file path.
+     * @param embeddings Text embeddings to write.
+     */
     fun writeTextEmbeddings(
         path: Path,
         embeddings: List<TextEmbedding>,
@@ -67,6 +89,12 @@ class ParquetWriterHelper {
         }
     }
 
+    /**
+     * Writes entity embeddings to a Parquet file.
+     *
+     * @param path Output file path.
+     * @param embeddings Entity embeddings to write.
+     */
     fun writeEntityEmbeddings(
         path: Path,
         embeddings: List<EntityEmbedding>,
@@ -82,6 +110,12 @@ class ParquetWriterHelper {
         }
     }
 
+    /**
+     * Writes community assignments to a Parquet file.
+     *
+     * @param path Output file path.
+     * @param assignments Community assignments to write.
+     */
     fun writeCommunityAssignments(
         path: Path,
         assignments: List<CommunityAssignment>,
@@ -97,6 +131,12 @@ class ParquetWriterHelper {
         }
     }
 
+    /**
+     * Writes claims to a Parquet file.
+     *
+     * @param path Output file path.
+     * @param claims Claims to write.
+     */
     fun writeClaims(
         path: Path,
         claims: List<Claim>,
@@ -124,6 +164,12 @@ class ParquetWriterHelper {
         }
     }
 
+    /**
+     * Writes text units to a Parquet file.
+     *
+     * @param path Output file path.
+     * @param textUnits Text units to write.
+     */
     fun writeTextUnits(
         path: Path,
         textUnits: List<TextUnit>,
@@ -143,6 +189,12 @@ class ParquetWriterHelper {
         }
     }
 
+    /**
+     * Writes entity summaries to a Parquet file.
+     *
+     * @param path Output file path.
+     * @param summaries Entity summaries to write.
+     */
     fun writeEntitySummaries(
         path: Path,
         summaries: List<EntitySummary>,

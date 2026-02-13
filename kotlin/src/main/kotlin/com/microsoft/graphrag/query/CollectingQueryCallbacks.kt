@@ -4,12 +4,27 @@ package com.microsoft.graphrag.query
  * Captures callback events so streaming code paths can still surface context and response metadata.
  */
 class CollectingQueryCallbacks : QueryCallbacks {
+    /**
+     * Captured context records converted to immutable maps.
+     */
     var contextRecords: Map<String, List<Map<String, String>>> = emptyMap()
         private set
+
+    /**
+     * Map-phase responses captured from callback events.
+     */
     var mapResponses: List<QueryResult> = emptyList()
         private set
+
+    /**
+     * Reduce-phase context string captured when reduce starts.
+     */
     var reduceContext: String = ""
         private set
+
+    /**
+     * Final reduce-phase response captured when reduce ends.
+     */
     var reduceResponse: String = ""
         private set
 

@@ -10,6 +10,20 @@ import kotlinx.coroutines.runBlocking
 import java.io.PrintStream
 import java.nio.file.Path
 
+/**
+ * CLI options used to configure an indexing run.
+ *
+ * @property root Project root directory.
+ * @property config Optional settings file path.
+ * @property method Indexing method identifier.
+ * @property verbose Whether to enable verbose logging.
+ * @property memprofile Whether to enable memory profiling.
+ * @property dryRun Whether to validate configuration without executing steps.
+ * @property cache Whether LLM caching is enabled.
+ * @property skipValidation Whether to skip preflight validation.
+ * @property output Optional output directory override.
+ * @property isUpdate Whether this run updates an existing index.
+ */
 data class IndexOptions(
     val root: Path,
     val config: Path?,
@@ -23,9 +37,19 @@ data class IndexOptions(
     val isUpdate: Boolean,
 )
 
+/**
+ * Executes the indexing pipeline based on CLI options.
+ *
+ * @property out Output stream used for status reporting.
+ */
 class IndexRunner(
     private val out: PrintStream = System.out,
 ) {
+    /**
+     * Runs the indexing workflow using the provided options.
+     *
+     * @param options Options describing the indexing run.
+     */
     fun run(options: IndexOptions) {
         out.println("Index command received (update=${options.isUpdate})")
         printOptions(options)

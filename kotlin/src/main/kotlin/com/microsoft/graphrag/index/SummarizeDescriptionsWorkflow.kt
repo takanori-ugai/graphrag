@@ -6,6 +6,14 @@ import dev.langchain4j.service.AiServices
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
+/**
+ * Summarizes entity and relationship descriptions using an LLM.
+ *
+ * @property chatModel Chat model used to generate summaries.
+ * @property prompts Repository that provides prompt templates.
+ * @property maxSummaryLength Maximum summary length in characters.
+ * @property maxInputTokens Token budget for input descriptions.
+ */
 class SummarizeDescriptionsWorkflow(
     private val chatModel: OpenAiChatModel,
     private val prompts: PromptRepository = PromptRepository(),
@@ -14,6 +22,14 @@ class SummarizeDescriptionsWorkflow(
 ) {
     private val summarizer = AiServices.create(Summarizer::class.java, chatModel)
 
+    /**
+     * Generates summaries for entities and relationships.
+     *
+     * @param entities Entities to summarize.
+     * @param relationships Relationships to summarize.
+     * @param textUnits Text units used for contextual snippets.
+     * @return SummarizationResult containing entity summaries and updated relationships.
+     */
     fun summarize(
         entities: List<Entity>,
         relationships: List<Relationship>,
@@ -73,6 +89,7 @@ class SummarizeDescriptionsWorkflow(
         return listOfNotNull(desc, fallback)
     }
 
+    @Suppress("ReturnCount")
     private fun summarizeDescriptions(
         idLabel: String,
         descriptions: List<String>,
@@ -134,6 +151,12 @@ class SummarizeDescriptionsWorkflow(
     }
 }
 
+/**
+ * Summary output for entities and relationships.
+ *
+ * @property entitySummaries Summaries for entities.
+ * @property relationships Relationships with summarized descriptions.
+ */
 data class SummarizationResult(
     val entitySummaries: List<EntitySummary>,
     val relationships: List<Relationship>,

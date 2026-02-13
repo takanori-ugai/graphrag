@@ -1,7 +1,11 @@
 package com.microsoft.graphrag.prompts.query
 
+/**
+ * System prompt template used to generate follow-up questions from context tables.
+ */
 val QUESTION_SYSTEM_PROMPT =
-    "\n" + """
+    "\n" +
+        """
 ---Role---
 
 You are a helpful assistant generating a bulleted list of {question_count} questions about data in the tables provided.
@@ -32,4 +36,4 @@ Return a single JSON object with the following shape:
 }
 
 Use the "questions" array for the generated questions. Do not include bullet points or additional text.
-    """.trimIndent()
+        """.trimIndent()

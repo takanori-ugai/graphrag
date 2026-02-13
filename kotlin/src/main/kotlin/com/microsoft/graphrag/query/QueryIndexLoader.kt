@@ -30,12 +30,27 @@ import java.nio.file.Path
 import kotlin.io.path.isDirectory
 import org.apache.hadoop.fs.Path as HadoopPath
 
+/**
+ * Runtime statistics captured during indexing.
+ *
+ * @property workflows Per-workflow metrics keyed by workflow name.
+ * @property totalRuntime Total runtime in seconds.
+ */
 @Serializable
 data class IndexStats(
     val workflows: Map<String, Map<String, Double>> = emptyMap(),
     val totalRuntime: Double = 0.0,
 )
 
+/**
+ * Lookup tables that map identifiers to index names.
+ *
+ * @property indexNames Set of available index names.
+ * @property textUnitIndex Map of text unit ids to index names.
+ * @property entityIndex Map of entity ids to index names.
+ * @property communityIndex Map of community ids to index names.
+ * @property reportIndex Map of report ids to index names.
+ */
 data class IndexLookup(
     val indexNames: Set<String> = emptySet(),
     val textUnitIndex: Map<String, String> = emptyMap(),
@@ -44,6 +59,25 @@ data class IndexLookup(
     val reportIndex: Map<String, String> = emptyMap(),
 )
 
+/**
+ * Aggregated index data used for query engines.
+ *
+ * @property textUnits Text units loaded from the index.
+ * @property textEmbeddings Text unit embeddings.
+ * @property entities Entities loaded from the index.
+ * @property entityEmbeddings Entity embeddings.
+ * @property entitySummaries Summaries for entities.
+ * @property relationships Relationship records.
+ * @property claims Claim records.
+ * @property covariates Covariate records grouped by type.
+ * @property communities Community assignments.
+ * @property communityReports Community report records.
+ * @property communityReportEmbeddings Embeddings for community reports.
+ * @property communityHierarchy Community hierarchy mapping.
+ * @property stats Index runtime statistics.
+ * @property vectorStore Vector store used for retrieval.
+ * @property indexLookup Lookup tables to map ids to index names.
+ */
 data class QueryIndexData(
     val textUnits: List<TextUnit>,
     val textEmbeddings: List<TextEmbedding>,
@@ -62,6 +96,12 @@ data class QueryIndexData(
     val indexLookup: IndexLookup = IndexLookup(),
 )
 
+/**
+ * Loads and merges query index outputs from one or more directories.
+ *
+ * @property outputDirs Index configurations to load.
+ */
+@Suppress("TooManyFunctions", "LargeClass")
 class QueryIndexLoader(
     private val outputDirs: List<QueryIndexConfig>,
 ) {
@@ -100,6 +140,7 @@ class QueryIndexLoader(
      * @param candidates Candidate index configurations to resolve into concrete index directories.
      * @return A list of distinct `QueryIndexConfig` objects pointing to resolved index directories.
      */
+    @Suppress("NestedBlockDepth")
     private fun resolveOutputs(candidates: List<QueryIndexConfig>): List<QueryIndexConfig> {
         val outputs = mutableListOf<QueryIndexConfig>()
         candidates.forEach { candidate ->
@@ -220,6 +261,7 @@ class QueryIndexLoader(
      *   relationships, claims, covariates, communities, community reports and embeddings, community hierarchy,
      *   accumulated stats, a LocalVectorStore with the merged payload and path, and a combined IndexLookup.
      */
+    @Suppress("LongMethod")
     private fun mergeOutputs(
         outputs: List<QueryIndexConfig>,
         partials: List<PartialIndex>,
@@ -330,6 +372,7 @@ class QueryIndexLoader(
      * @return A RemapResult containing the (possibly remapped) PartialIndex, an IndexLookup mapping remapped
      * IDs to the sanitized index name, and the next community offset to use for subsequent remaps.
      */
+    @Suppress("LongMethod")
     private fun remapPartial(
         partial: PartialIndex,
         name: String,
@@ -778,6 +821,7 @@ class QueryIndexLoader(
      * @param key Key whose associated value should be interpreted as a list of `T`.
      * @return A list of `T` extracted from the state entry, or an empty list if not present or not a list.
      */
+    @Suppress("ReturnCount")
     private inline fun <reified T> stateList(
         state: Map<String, Any?>,
         key: String,
@@ -804,6 +848,7 @@ class QueryIndexLoader(
      * @param key The key whose value should be interpreted as a map of integers.
      * @return A map of integer keys to integer values parsed from the state, or an empty map on missing/invalid data.
      */
+    @Suppress("ReturnCount")
     private fun stateIntMap(
         state: Map<String, Any?>,
         key: String,

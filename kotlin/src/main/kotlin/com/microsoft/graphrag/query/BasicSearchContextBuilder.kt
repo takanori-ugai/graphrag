@@ -17,6 +17,7 @@ import kotlin.math.sqrt
  * Basic search context builder that mirrors the Python BasicSearchContext: embeds the query, retrieves similar
  * text units, enforces a token budget, and returns both the rendered context text and structured records.
  */
+@Suppress("LongParameterList")
 class BasicSearchContextBuilder(
     private val embeddingModel: EmbeddingModel,
     private val vectorStore: LocalVectorStore,
@@ -29,6 +30,19 @@ class BasicSearchContextBuilder(
 ) {
     private val logger = KotlinLogging.logger {}
 
+    /**
+     * Result of building a basic search context.
+     *
+     * @property contextText Rendered context string.
+     * @property contextChunks Selected context chunks with scores.
+     * @property contextRecords Structured context records keyed by name.
+     * @property llmCalls LLM call count attributed to context building.
+     * @property promptTokens Prompt token count for context building.
+     * @property outputTokens Output token count for context building.
+     * @property llmCallsCategories LLM call counts grouped by category.
+     * @property promptTokensCategories Prompt token counts grouped by category.
+     * @property outputTokensCategories Output token counts grouped by category.
+     */
     data class BasicContextResult(
         val contextText: String,
         val contextChunks: List<QueryContextChunk>,
@@ -58,7 +72,7 @@ class BasicSearchContextBuilder(
      *   - `contextRecords`: a map from `contextName` to the list of record maps,
      *   - token and LLM usage metrics keyed by the "build_context" category.
      */
-    @Suppress("CyclomaticComplexMethod")
+    @Suppress("CyclomaticComplexMethod", "LongMethod")
     suspend fun buildContext(
         query: String,
         k: Int = 10,

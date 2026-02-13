@@ -8,6 +8,13 @@ import dev.langchain4j.data.message.UserMessage
 import dev.langchain4j.model.openai.OpenAiChatModel
 import io.github.oshai.kotlinlogging.KotlinLogging
 
+/**
+ * Extracts entities and relationships from document chunks using an LLM.
+ *
+ * @property chatModel Chat model used for extraction.
+ * @property prompts Repository that provides prompt templates.
+ * @property objectMapper Mapper used to parse JSON responses.
+ */
 class ExtractGraphWorkflow(
     private val chatModel: OpenAiChatModel,
     private val prompts: PromptRepository = PromptRepository(),
@@ -66,6 +73,7 @@ class ExtractGraphWorkflow(
                 ""
             }
 
+    @Suppress("ReturnCount")
     private fun parseJson(
         raw: String,
         sourceChunkId: String,
@@ -113,8 +121,7 @@ class ExtractGraphWorkflow(
         return entityCount to relationshipCount
     }
 
-    private fun cleanString(value: String): String =
-        value.trim().replace(CONTROL_CHAR_REGEX, "")
+    private fun cleanString(value: String): String = value.trim().replace(CONTROL_CHAR_REGEX, "")
 
     private fun extractJsonObject(text: String): String? {
         val fenced = extractFromCodeFence(text)
@@ -132,6 +139,7 @@ class ExtractGraphWorkflow(
         return extractBalancedJson(match.groupValues[1])
     }
 
+    @Suppress("NestedBlockDepth", "ReturnCount")
     private fun extractBalancedJson(text: String): String? {
         val start = text.indexOf('{')
         if (start == -1) return null
@@ -152,8 +160,14 @@ class ExtractGraphWorkflow(
                 continue
             }
             when (c) {
-                '"' -> inString = true
-                '{' -> depth++
+                '"' -> {
+                    inString = true
+                }
+
+                '{' -> {
+                    depth++
+                }
+
                 '}' -> {
                     depth--
                     if (depth == 0) return text.substring(start, i + 1)

@@ -22,6 +22,20 @@ import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import java.util.concurrent.CompletableFuture
 
+/**
+ * Result of a DRIFT-style search.
+ *
+ * @property answer Final answer produced by the reducer or last action.
+ * @property actions Action-level query results produced during planning.
+ * @property llmCalls Total LLM calls across all stages.
+ * @property promptTokens Total prompt tokens across all stages.
+ * @property outputTokens Total output tokens across all stages.
+ * @property llmCallsCategories LLM calls grouped by stage.
+ * @property promptTokensCategories Prompt token counts grouped by stage.
+ * @property outputTokensCategories Output token counts grouped by stage.
+ * @property contextRecords Structured context records emitted during planning.
+ * @property contextText Human-readable context text constructed from actions.
+ */
 data class DriftSearchResult(
     val answer: String,
     val actions: List<QueryResult>,
@@ -237,6 +251,7 @@ private data class PlannerResult(
  *
  * NOTE: This is a faithful structural port but uses existing GlobalSearchEngine and LocalQueryEngine.
  */
+@Suppress("LongParameterList")
 class DriftSearchEngine(
     private val streamingModel: OpenAiStreamingChatModel,
     private val communityReports: List<CommunityReport>,

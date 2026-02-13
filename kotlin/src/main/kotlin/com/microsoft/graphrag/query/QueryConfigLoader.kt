@@ -16,6 +16,19 @@ import io.github.oshai.kotlinlogging.KotlinLogging
 import java.nio.file.Files
 import java.nio.file.Path
 
+/**
+ * Fully resolved query configuration for a project.
+ *
+ * @property root Project root directory.
+ * @property indexes List of available query indexes.
+ * @property defaultChatModel Default chat model configuration.
+ * @property defaultEmbeddingModel Default embedding model name.
+ * @property basic Basic search configuration.
+ * @property local Local search configuration.
+ * @property global Global search configuration.
+ * @property drift Drift search configuration.
+ * @property questionPrompt Prompt template used for question generation.
+ */
 data class QueryConfig(
     val root: Path,
     val indexes: List<QueryIndexConfig>,
@@ -28,16 +41,37 @@ data class QueryConfig(
     val questionPrompt: String,
 )
 
+/**
+ * Defines a named index location for querying.
+ *
+ * @property name Human-readable index name.
+ * @property path Filesystem path to the index output directory.
+ */
 data class QueryIndexConfig(
     val name: String,
     val path: Path,
 )
 
+/**
+ * Chat model configuration and tuning parameters.
+ *
+ * @property model Model name or identifier.
+ * @property params Optional parameter overrides for the model.
+ */
 data class QueryModelConfig(
     val model: String?,
     val params: ModelParams = ModelParams(),
 )
 
+/**
+ * Configuration for basic search mode.
+ *
+ * @property prompt System prompt template.
+ * @property chat Chat model configuration to use.
+ * @property embeddingModel Embedding model name to use.
+ * @property k Number of nearest neighbors to include.
+ * @property maxContextTokens Maximum tokens allowed in the built context.
+ */
 data class BasicSearchConfig(
     val prompt: String,
     val chat: QueryModelConfig?,
@@ -46,6 +80,19 @@ data class BasicSearchConfig(
     val maxContextTokens: Int,
 )
 
+/**
+ * Configuration for local search mode.
+ *
+ * @property prompt System prompt template.
+ * @property chat Chat model configuration to use.
+ * @property embeddingModel Embedding model name to use.
+ * @property textUnitProp Proportion of text units to include.
+ * @property communityProp Proportion of community context to include.
+ * @property conversationHistoryMaxTurns Max turns of conversation history to keep.
+ * @property topKEntities Number of entities to include.
+ * @property topKRelationships Number of relationships to include.
+ * @property maxContextTokens Maximum tokens allowed in the built context.
+ */
 data class LocalSearchConfig(
     val prompt: String,
     val chat: QueryModelConfig?,
@@ -58,6 +105,15 @@ data class LocalSearchConfig(
     val maxContextTokens: Int,
 )
 
+/**
+ * Configuration for dynamic community selection in global search.
+ *
+ * @property threshold Minimum number of members to keep a community.
+ * @property keepParent Whether to include parent communities in selection.
+ * @property numRepeats Number of dynamic selection passes.
+ * @property useSummary Whether to use community summaries when selecting.
+ * @property maxLevel Maximum depth to search.
+ */
 data class DynamicCommunityConfig(
     val threshold: Int,
     val keepParent: Boolean,
@@ -66,6 +122,21 @@ data class DynamicCommunityConfig(
     val maxLevel: Int,
 )
 
+/**
+ * Configuration for global search mode.
+ *
+ * @property mapPrompt System prompt used for the map step.
+ * @property reducePrompt System prompt used for the reduce step.
+ * @property knowledgePrompt Optional prompt used for general knowledge.
+ * @property chat Chat model configuration to use.
+ * @property embeddingModel Embedding model name to use.
+ * @property allowGeneralKnowledge Whether the model may answer from general knowledge.
+ * @property mapMaxLength Maximum length of map results.
+ * @property reduceMaxLength Maximum length of reduce results.
+ * @property maxContextTokens Maximum tokens allowed in the built context.
+ * @property dataMaxTokens Maximum tokens allowed for data payloads.
+ * @property dynamic Dynamic community selection parameters.
+ */
 data class GlobalSearchConfig(
     val mapPrompt: String,
     val reducePrompt: String,
@@ -80,6 +151,15 @@ data class GlobalSearchConfig(
     val dynamic: DynamicCommunityConfig,
 )
 
+/**
+ * Configuration for drift search mode.
+ *
+ * @property prompt System prompt for the primer step.
+ * @property reducePrompt System prompt for the reduce step.
+ * @property chat Chat model configuration to use.
+ * @property embeddingModel Embedding model name to use.
+ * @property maxIterations Maximum number of follow-up iterations.
+ */
 data class DriftSearchConfig(
     val prompt: String,
     val reducePrompt: String,
@@ -88,6 +168,9 @@ data class DriftSearchConfig(
     val maxIterations: Int,
 )
 
+/**
+ * Loads and resolves query configuration from a settings file.
+ */
 object QueryConfigLoader {
     private const val DEFAULT_CHAT_ID = "default_chat_model"
     private const val DEFAULT_EMBEDDING_ID = "default_embedding_model"
@@ -117,6 +200,7 @@ object QueryConfigLoader {
      * and the assembled BasicSearchConfig, LocalSearchConfig, GlobalSearchConfig, DriftSearchConfig, and
      * question prompt.
      */
+    @Suppress("LongMethod", "CyclomaticComplexMethod", "ReturnCount")
     fun load(
         root: Path,
         configPath: Path?,
@@ -235,6 +319,7 @@ object QueryConfigLoader {
      * creation.
      * @return A fully populated QueryConfig with provided or default indexes and default model/search settings.
      */
+    @Suppress("LongMethod")
     private fun defaultConfig(
         root: Path,
         indexConfigs: List<QueryIndexConfig>,
@@ -320,6 +405,7 @@ object QueryConfigLoader {
      * @param overrideDirs If non-empty, these explicit directories take precedence and each becomes an index entry.
      * @return A list of QueryIndexConfig instances with sanitized names and normalized paths.
      */
+    @Suppress("ReturnCount")
     private fun buildIndexConfigs(
         configRoot: Path,
         raw: RawConfig?,
