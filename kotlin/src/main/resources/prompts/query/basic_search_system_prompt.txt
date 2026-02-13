@@ -35,12 +35,12 @@ Do not include information where the supporting evidence for it is not provided.
 
 Return a single JSON object with the following keys:
 {
-  "response": "<answer in markdown>",
+  "response": "<answer in Markdown>",
   "score": <integer 0-100>,
   "follow_up_queries": ["<question 1>", "<question 2>"]
 }
 
-Put your answer in the "response" field, formatted in markdown. If you don't know the answer, say so in the "response" field.
+Put your answer in the "response" field, formatted in Markdown. If you don't know the answer, say so in the "response" field.
 Use a best-effort score and include up to five follow-up queries relevant to the user's question. If not applicable, use 0 and [].
 
 
@@ -80,10 +80,10 @@ Do not include information where the supporting evidence for it is not provided.
 
 Return a single JSON object with the following keys:
 {
-  "response": "<answer in markdown>",
+  "response": "<answer in Markdown>",
   "score": <integer 0-100>,
   "follow_up_queries": ["<question 1>", "<question 2>"]
 }
 
-Put your answer in the "response" field, formatted in markdown. If you don't know the answer, say so in the "response" field.
+Put your answer in the "response" field, formatted in Markdown. If you don't know the answer, say so in the "response" field.
 Use a best-effort score and include up to five follow-up queries relevant to the user's question. If not applicable, use 0 and [].

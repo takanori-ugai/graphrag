@@ -24,7 +24,7 @@ import java.util.concurrent.CompletableFuture
 
 data class QuestionResult(
     val response: List<String>,
-    val contextData: Map<String, List<MutableMap<String, String>>>,
+    val contextData: Map<String, List<Map<String, String>>>,
     val completionTime: Double,
     val llmCalls: Int,
     val promptTokens: Int,
@@ -138,8 +138,11 @@ class LocalQuestionGen(
         return QuestionResult(
             response = parseQuestions(response),
             contextData =
-                contextRecords +
-                    mapOf("question_context" to mutableListOf(mutableMapOf("text" to questionText, "in_context" to "true"))),
+                (contextRecords +
+                    mapOf(
+                        "question_context" to
+                            mutableListOf(mutableMapOf("text" to questionText, "in_context" to "true")),
+                    )).toImmutableContextRecords(),
             completionTime = completionTime,
             llmCalls = 1,
             promptTokens = encoding.countTokens(systemPrompt),
@@ -256,7 +259,6 @@ class LocalQuestionGen(
                     questionCount = questionCount,
                 )
 
-            val responseBuilder = StringBuilder()
             model.chat(
                 listOf(
                     SystemMessage(systemPrompt),
@@ -264,7 +266,6 @@ class LocalQuestionGen(
                 ),
                 object : StreamingChatResponseHandler {
                     override fun onPartialResponse(partialResponse: String) {
-                        responseBuilder.append(partialResponse)
                         callbacks.forEach { it.onLLMNewToken(partialResponse) }
                         trySend(partialResponse)
                     }

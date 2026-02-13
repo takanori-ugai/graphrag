@@ -5,6 +5,7 @@ import com.microsoft.graphrag.query.BasicQueryEngine
 import com.microsoft.graphrag.query.DriftSearchEngine
 import com.microsoft.graphrag.query.GlobalSearchEngine
 import com.microsoft.graphrag.query.LocalQueryEngine
+import com.microsoft.graphrag.query.ModelParams
 import com.microsoft.graphrag.query.QueryIndexLoader
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel
 import kotlinx.coroutines.runBlocking
@@ -65,9 +66,7 @@ fun main() =
                 covariates = index.covariates,
                 communities = index.communities,
                 communityReports = index.communityReports,
-                modelParams =
-                    com.microsoft.graphrag.query
-                        .ModelParams(jsonResponse = false),
+                modelParams = ModelParams(jsonResponse = false),
             )
         val localResult = localEngine.answer(question, responseType)
         println("\n=== LOCAL ===")

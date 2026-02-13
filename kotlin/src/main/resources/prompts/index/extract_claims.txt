@@ -71,7 +71,7 @@ Output:
     "claimType": "CORRUPTION",
     "status": "SUSPECTED",
     "startDate": "2015-01-01T00:00:00",
-    "endDate": "2015-12-30T00:00:00",
+    "endDate": "2015-12-31T00:00:00",
     "description": "Person C was suspected of engaging in corruption activities in 2015",
     "sourceText": "The company is owned by Person C who was suspected of engaging in corruption activities in 2015."
   }

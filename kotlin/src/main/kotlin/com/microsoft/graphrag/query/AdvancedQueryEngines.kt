@@ -492,9 +492,9 @@ class GlobalQueryEngine(
                 val response: Response<dev.langchain4j.data.embedding.Embedding> = embeddingModel.embed(text)
                 response
                     .content()
-                    ?.vector()
-                    ?.asList()
-                    ?.map { it.toDouble() }
+                    .vector()
+                    .asList()
+                    .map { it.toDouble() }
             }.getOrElse { error ->
                 logger.warn { "Embedding failed for global search ($error)" }
                 null
@@ -685,44 +685,6 @@ Use a best-effort score and include up to five follow-up queries relevant to the
 ---Data tables---
 
 {context_data}
-
-
----Goal---
-
-Generate a response of the target length and format that responds to the user's question, summarizing all information in the input data tables appropriate for the response length and format, and incorporating any relevant general knowledge.
-
-If you don't know the answer, just say so. Do not make anything up.
-
-Points supported by data should list their data references as follows:
-
-"This is an example sentence supported by multiple data references [Data: <dataset name> (record ids); <dataset name> (record ids)]."
-
-Do not list more than 5 record ids in a single reference. Instead, list the top 5 most relevant record ids and add "+more" to indicate that there are more.
-
-For example:
-
-"Person X is the owner of Company Y and subject to many allegations of wrongdoing [Data: Sources (15, 16), Reports (1), Entities (5, 7); Relationships (23); Claims (2, 7, 34, 46, 64, +more)]."
-
-where 15, 16, 1, 5, 7, 23, 2, 7, 34, 46, and 64 represent the id (not the index) of the relevant data record.
-
-Do not include information where the supporting evidence for it is not provided.
-
-
----Target response length and format---
-
-{response_type}
-
----Response format---
-
-Return a single JSON object with the following keys:
-{
-  "response": "<answer in markdown>",
-  "score": <integer 0-100>,
-  "follow_up_queries": ["<question 1>", "<question 2>"]
-}
-
-Put your answer in the "response" field, formatted in markdown. If you don't know the answer, say so in the "response" field.
-Use a best-effort score and include up to five follow-up queries relevant to the user's question. If not applicable, use 0 and [].
     """.trimIndent()
 
 private val REDUCE_SYSTEM_PROMPT =
@@ -779,50 +741,6 @@ Use a best-effort score and include up to five follow-up queries relevant to the
 ---Analyst Reports---
 
 {report_data}
-
-
----Goal---
-
-Generate a response of the target length and format that responds to the user's question, summarize all the reports from multiple analysts who focused on different parts of the dataset.
-
-Note that the analysts' reports provided below are ranked in the **descending order of importance**.
-
-If you don't know the answer or if the provided reports do not contain sufficient information to provide an answer, just say so. Do not make anything up.
-
-The final response should remove all irrelevant information from the analysts' reports and merge the cleaned information into a comprehensive answer that provides explanations of all the key points and implications appropriate for the response length and format.
-
-The response shall preserve the original meaning and use of modal verbs such as "shall", "may" or "will".
-
-The response should also preserve all the data references previously included in the analysts' reports, but do not mention the roles of multiple analysts in the analysis process.
-
-* *Do not list more than 5 record ids in a single reference**. Instead, list the top 5 most relevant record ids
-* and add "+more" to indicate that there are more.
-
-For example:
-
-"Person X is the owner of Company Y and subject to many allegations of wrongdoing [Data: Reports (2, 7, 34, 46, 64, +more)]. He is also CEO of company X [Data: Reports (1, 3)]"
-
-where 1, 2, 3, 7, 34, 46, and 64 represent the id (not the index) of the relevant data record.
-
-Do not include information where the supporting evidence for it is not provided.
-
-Limit your response length to {max_length} words.
-
----Target response length and format---
-
-{response_type}
-
----Response format---
-
-Return a single JSON object with the following keys:
-{
-  "response": "<answer in markdown>",
-  "score": <integer 0-100>,
-  "follow_up_queries": ["<question 1>", "<question 2>"]
-}
-
-Put your answer in the "response" field, formatted in markdown. If you don't know the answer, say so in the "response" field.
-Use a best-effort score and include up to five follow-up queries relevant to the user's question. If not applicable, use 0 and [].
     """.trimIndent()
 
 private val DRIFT_LOCAL_SYSTEM_PROMPT =
@@ -860,32 +778,6 @@ Pay close attention specifically to the Sources tables as it contains the most r
 ---Data tables---
 
 {context_data}
-
-
----Goal---
-
-Generate a response of the target length and format that responds to the user's question, summarizing all information in the input data tables appropriate for the response length and format, and incorporating any relevant general knowledge.
-
-If you don't know the answer, just say so. Do not make anything up.
-
-Points supported by data should list their data references as follows:
-
-"This is an example sentence supported by multiple data references [Data: <dataset name> (record ids); <dataset name> (record ids)]."
-
-Do not list more than 5 record ids in a single reference. Instead, list the top 5 most relevant record ids and add "+more" to indicate that there are more.
-
-For example:
-
-"Person X is the owner of Company Y and subject to many allegations of wrongdoing [Data: Sources (15, 16)]."
-
-where 15, 16, 1, 5, 7, 23, 2, 7, 34, 46, and 64 represent the id (not the index) of the relevant data record.
-
-Pay close attention specifically to the Sources tables as it contains the most relevant information for the user query. You will be rewarded for preserving the context of the sources in your response.
-
----Target response length and format---
-
-{response_type}
-
 Add sections and commentary to the response as appropriate for the length and format.
 
 Additionally provide a score between 0 and 100 representing how well the response addresses the overall research question: {global_query}. Based on your response, suggest up to five follow-up questions that could be asked to further explore the topic as it relates to the overall research question. Do not include scores or follow up questions in the "response" field of the JSON, add them to the respective "score" and "follow_up_queries" keys of the JSON output. Format your response as JSON with the following shape:

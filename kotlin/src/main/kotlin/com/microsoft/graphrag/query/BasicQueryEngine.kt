@@ -298,17 +298,4 @@ Use a best-effort score and include up to five follow-up queries relevant to the
 ---Data tables---
 
 {context_data}
-
-
----Response format---
-
-Return a single JSON object with the following keys:
-{
-  "response": "<answer in markdown>",
-  "score": <integer 0-100>,
-  "follow_up_queries": ["<question 1>", "<question 2>"]
-}
-
-Put your answer in the "response" field, formatted in markdown. If you don't know the answer, say so in the "response" field.
-Use a best-effort score and include up to five follow-up queries relevant to the user's question. If not applicable, use 0 and [].
     """.trimIndent()

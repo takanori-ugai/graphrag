@@ -355,7 +355,9 @@ class GlobalSearchEngine(
     private fun levelOf(communityId: Int): Int {
         var current: Int? = communityId
         var level = 0
+        val seen = mutableSetOf<Int>()
         while (current != null) {
+            if (!seen.add(current)) break
             val parent = communityHierarchy[current]
             if (parent == null || parent < 0) break
             level += 1
@@ -384,7 +386,7 @@ class GlobalSearchEngine(
             if (dynamicUseSummary || report.fullContent.isNullOrBlank()) {
                 report.summary
             } else {
-                report.fullContent ?: report.summary
+                report.fullContent
             }
         val prompt =
             ratingPrompt
@@ -885,50 +887,6 @@ Use a best-effort score and include up to five follow-up queries relevant to the
 ---Analyst Reports---
 
             {report_data}
-
-
-            ---Goal---
-
-            Generate a response of the target length and format that responds to the user's question, summarize all the reports from multiple analysts who focused on different parts of the dataset.
-
-            Note that the analysts' reports provided below are ranked in the **descending order of importance**.
-
-            If you don't know the answer or if the provided reports do not contain sufficient information to provide an answer, just say so. Do not make anything up.
-
-            The final response should remove all irrelevant information from the analysts' reports and merge the cleaned information into a comprehensive answer that provides explanations of all the key points and implications appropriate for the response length and format.
-
-            The response shall preserve the original meaning and use of modal verbs such as "shall", "may" or "will".
-
-            The response should also preserve all the data references previously included in the analysts' reports, but do not mention the roles of multiple analysts in the analysis process.
-
-            * *Do not list more than 5 record ids in a single reference**. Instead, list the top 5 most relevant
-            * record ids and add "+more" to indicate that there are more.
-
-            For example:
-
-            "Person X is the owner of Company Y and subject to many allegations of wrongdoing [Data: Reports (2, 7, 34, 46, 64, +more)]. He is also CEO of company X [Data: Reports (1, 3)]"
-
-            where 1, 2, 3, 7, 34, 46, and 64 represent the id (not the index) of the relevant data record.
-
-            Do not include information where the supporting evidence for it is not provided.
-
-            Limit your response length to {max_length} words.
-
----Target response length and format---
-
-{response_type}
-
----Response format---
-
-Return a single JSON object with the following keys:
-{
-  "response": "<answer in markdown>",
-  "score": <integer 0-100>,
-  "follow_up_queries": ["<question 1>", "<question 2>"]
-}
-
-Put your answer in the "response" field, formatted in markdown. If you don't know the answer, say so in the "response" field.
-Use a best-effort score and include up to five follow-up queries relevant to the user's question. If not applicable, use 0 and [].
             """.trimIndent()
 
         internal val DEFAULT_GENERAL_KNOWLEDGE_INSTRUCTION: String =

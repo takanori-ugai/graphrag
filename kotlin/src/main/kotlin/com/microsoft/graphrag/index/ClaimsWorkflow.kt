@@ -17,10 +17,10 @@ class ClaimsWorkflow(
         claimDescription: String = "Any claims or facts that could be relevant to information discovery.",
     ): List<Claim> {
         val claims = mutableListOf<Claim>()
+        val basePrompt = prompts.loadExtractClaimsPrompt()
         for (chunk in chunks) {
             val prompt =
-                prompts
-                    .loadExtractClaimsPrompt()
+                basePrompt
                     .replace("{entity_specs}", entitySpecs)
                     .replace("{claim_description}", claimDescription)
                     .replace("{input_text}", chunk.text)

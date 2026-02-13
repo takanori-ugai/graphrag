@@ -23,7 +23,7 @@ internal object JsonAnswerParser {
             val response = obj["response"]?.jsonPrimitive?.content ?: raw
             val followUps =
                 (obj["follow_up_queries"] as? JsonArray)
-                    ?.mapNotNull { it.jsonPrimitive.contentOrNull }
+                    ?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull }
                     .orEmpty()
             val score = obj["score"]?.jsonPrimitive?.doubleOrNull
             Parsed(raw = raw, response = response, followUps = followUps, score = score)

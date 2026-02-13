@@ -20,7 +20,7 @@ For example:
 
 "Person X is the owner of Company Y and subject to many allegations of wrongdoing [Data: Sources (15, 16)]."
 
-where 15, 16, 1, 5, 7, 23, 2, 7, 34, 46, and 64 represent the id (not the index) of the relevant data record.
+where 15 and 16 represent the id (not the index) of the relevant data record.
 
 Pay close attention specifically to the Sources tables as it contains the most relevant information for the user query. You will be rewarded for preserving the context of the sources in your response.
 
@@ -50,7 +50,7 @@ For example:
 
 "Person X is the owner of Company Y and subject to many allegations of wrongdoing [Data: Sources (15, 16)]."
 
-where 15, 16, 1, 5, 7, 23, 2, 7, 34, 46, and 64 represent the id (not the index) of the relevant data record.
+where 15 and 16 represent the id (not the index) of the relevant data record.
 
 Pay close attention specifically to the Sources tables as it contains the most relevant information for the user query. You will be rewarded for preserving the context of the sources in your response.
 

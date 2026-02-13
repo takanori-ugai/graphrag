@@ -64,10 +64,10 @@ class QueryPromptParityTest {
     )
 
     private fun loadResource(path: String): String {
-        val stream =
-            this::class.java.classLoader.getResourceAsStream(path)
-                ?: error("Resource not found: $path")
-        return stream.reader(Charsets.UTF_8).readText()
+        return (this::class.java.classLoader.getResourceAsStream(path)
+            ?: error("Resource not found: $path"))
+            .bufferedReader(Charsets.UTF_8)
+            .use { it.readText() }
     }
 
 }

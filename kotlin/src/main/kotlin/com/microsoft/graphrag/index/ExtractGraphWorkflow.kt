@@ -27,11 +27,11 @@ class ExtractGraphWorkflow(
         val relationships = linkedMapOf<Pair<String, String>, RelationshipAccumulator>()
 
         val entityTypesValue = entityTypes.joinToString(",")
+        val promptTemplate = prompts.loadExtractGraphPrompt()
 
         for (chunk in chunks) {
             val prompt =
-                prompts
-                    .loadExtractGraphPrompt()
+                promptTemplate
                     .replace("{entity_types}", entityTypesValue)
                     .replace("{input_text}", chunk.text)
             logger.debug { "ExtractGraph: chunk ${chunk.id} text preview: ${chunk.text.take(200)}" }
@@ -97,11 +97,13 @@ class ExtractGraphWorkflow(
         parsed.relationships.forEach { rel ->
             val source = cleanString(rel.source).uppercase()
             val target = cleanString(rel.target).uppercase()
+            val type = cleanString(rel.type ?: "related_to").uppercase()
             val description = cleanString(rel.description ?: "")
             val weight = rel.strength ?: 1.0
             if (source.isBlank() || target.isBlank()) return@forEach
             val key = source to target
             val acc = relationships.getOrPut(key) { RelationshipAccumulator(source = source, target = target) }
+            acc.addType(type)
             acc.addDescription(description)
             acc.addSourceChunkId(sourceChunkId)
             acc.weight += weight
@@ -150,9 +152,14 @@ class ExtractGraphWorkflow(
         val source: String,
         val target: String,
     ) {
+        var type: String = "related_to"
         var weight: Double = 0.0
         private val descriptions = linkedSetOf<String>()
         private val sourceChunkIds = linkedSetOf<String>()
+
+        fun addType(value: String) {
+            if (value.isNotBlank()) type = value
+        }
 
         fun addDescription(description: String) {
             if (description.isNotBlank()) descriptions += description
@@ -166,7 +173,7 @@ class ExtractGraphWorkflow(
             Relationship(
                 sourceId = source,
                 targetId = target,
-                type = "related_to",
+                type = type,
                 description = descriptions.joinToString("\n").ifBlank { null },
                 sourceChunkId = sourceChunkIds.joinToString(", "),
                 weight = weight,
@@ -182,22 +189,22 @@ class ExtractGraphWorkflow(
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 private data class GraphExtractionResponse(
-    @JsonProperty("entities") val entities: List<GraphEntity> = emptyList(),
-    @JsonProperty("relationships") val relationships: List<GraphRelationship> = emptyList(),
+    @param:JsonProperty("entities") val entities: List<GraphEntity> = emptyList(),
+    @param:JsonProperty("relationships") val relationships: List<GraphRelationship> = emptyList(),
 )
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 private data class GraphEntity(
-    @JsonProperty("name") val name: String,
-    @JsonProperty("type") val type: String,
-    @JsonProperty("description") val description: String? = null,
+    @param:JsonProperty("name") val name: String,
+    @param:JsonProperty("type") val type: String,
+    @param:JsonProperty("description") val description: String? = null,
 )
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 private data class GraphRelationship(
-    @JsonProperty("source") val source: String,
-    @JsonProperty("target") val target: String,
-    @JsonProperty("description") val description: String? = null,
-    @JsonProperty("strength") val strength: Double? = null,
-    @JsonProperty("type") val type: String? = null,
+    @param:JsonProperty("source") val source: String,
+    @param:JsonProperty("target") val target: String,
+    @param:JsonProperty("description") val description: String? = null,
+    @param:JsonProperty("strength") val strength: Double? = null,
+    @param:JsonProperty("type") val type: String? = null,
 )
