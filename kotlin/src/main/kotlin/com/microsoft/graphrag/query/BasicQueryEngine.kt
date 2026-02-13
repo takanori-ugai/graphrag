@@ -17,12 +17,35 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import java.util.concurrent.CompletableFuture
 
+/**
+ * Context chunk selected for a query.
+ *
+ * @property id Identifier of the chunk.
+ * @property text Chunk text content.
+ * @property score Relevance score for the chunk.
+ */
 data class QueryContextChunk(
     val id: String,
     val text: String,
     val score: Double,
 )
 
+/**
+ * Aggregated result returned from a query engine.
+ *
+ * @property answer Raw answer text from the model.
+ * @property context Context chunks used to produce the answer.
+ * @property contextRecords Structured context records keyed by source.
+ * @property contextText Human-readable context text used by reducers.
+ * @property followUpQueries Follow-up queries suggested by the model.
+ * @property score Optional relevance score from the model.
+ * @property llmCalls Total LLM calls across stages.
+ * @property promptTokens Total prompt tokens across stages.
+ * @property outputTokens Total output tokens across stages.
+ * @property llmCallsCategories LLM call counts grouped by stage.
+ * @property promptTokensCategories Prompt token counts grouped by stage.
+ * @property outputTokensCategories Output token counts grouped by stage.
+ */
 data class QueryResult(
     val answer: String,
     val context: List<QueryContextChunk>,

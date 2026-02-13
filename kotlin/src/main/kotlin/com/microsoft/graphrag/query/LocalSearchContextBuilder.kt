@@ -23,7 +23,7 @@ import kotlinx.coroutines.withContext
  * assembles entities/relationships/claims/communities/text-unit tables under a token budget, and
  * optionally adds conversation history.
  */
-@Suppress("LongParameterList", "TooManyFunctions")
+@Suppress("LongParameterList", "TooManyFunctions", "LargeClass")
 class LocalSearchContextBuilder(
     private val embeddingModel: EmbeddingModel,
     private val vectorStore: LocalVectorStore,
@@ -38,10 +38,19 @@ class LocalSearchContextBuilder(
     private val communityReports: List<CommunityReport>,
     private val columnDelimiter: String = "|",
 ) {
+    /**
+     * Single conversation turn used for building conversational context.
+     *
+     * @property role Role of the speaker.
+     * @property content Turn content.
+     */
     data class ConversationTurn(
         val role: Role,
         val content: String,
     ) {
+        /**
+         * Role of a conversation participant.
+         */
         enum class Role {
             USER,
             ASSISTANT,
@@ -49,6 +58,11 @@ class LocalSearchContextBuilder(
         }
     }
 
+    /**
+     * Conversation history container.
+     *
+     * @property turns Ordered list of conversation turns.
+     */
     data class ConversationHistory(
         val turns: List<ConversationTurn>,
     ) {
@@ -67,6 +81,19 @@ class LocalSearchContextBuilder(
                 .map { it.content }
     }
 
+    /**
+     * Result of building a local search context.
+     *
+     * @property contextText Rendered context text.
+     * @property contextChunks Selected context chunks with scores.
+     * @property contextRecords Structured context records keyed by section.
+     * @property llmCalls LLM call count attributed to context building.
+     * @property promptTokens Prompt token count for context building.
+     * @property outputTokens Output token count for context building.
+     * @property llmCallsCategories LLM call counts grouped by category.
+     * @property promptTokensCategories Prompt token counts grouped by category.
+     * @property outputTokensCategories Output token counts grouped by category.
+     */
     data class LocalContextResult(
         val contextText: String,
         val contextChunks: List<QueryContextChunk>,
@@ -97,8 +124,8 @@ class LocalSearchContextBuilder(
      * formatting) are considered when extracting history.
      * @param conversationHistoryRecencyBias If true, prefers more recent turns when enforcing the max-turn limit.
      * @param maxContextTokens Total token budget available for the assembled context.
-     * @param textUnitProp Fraction of maxContextTokens reserved for source/text-unit content (0.0–1.0).
-     * @param communityProp Fraction of maxContextTokens reserved for community content (0.0–1.0). Must satisfy
+     * @param textUnitProp Fraction of maxContextTokens reserved for source/text-unit content (0.0-1.0).
+     * @param communityProp Fraction of maxContextTokens reserved for community content (0.0-1.0). Must satisfy
      * communityProp + textUnitProp <= 1.0.
      * @param topKMappedEntities Max number of entities to retrieve for local context mapping.
      * @param topKRelationships Max number of relationships to include per selected entities (used as a
@@ -120,7 +147,7 @@ class LocalSearchContextBuilder(
      * @return A LocalContextResult containing the assembled context text, selected context chunks,
      * contextRecords broken down by section, and token/LLM metrics for the build operation.
      */
-    @Suppress("LongMethod", "ReturnCount", "LongParameterList", "CyclomaticComplexMethod")
+    @Suppress("LongMethod", "ReturnCount", "LongParameterList", "CyclomaticComplexMethod", "NestedBlockDepth")
     suspend fun buildContext(
         query: String,
         conversationHistory: ConversationHistory? = null,
@@ -361,7 +388,7 @@ class LocalSearchContextBuilder(
      *
      * @param conversationHistory The conversation history to extract turns from.
      * @param includeUserOnly When true, include only user turns and omit assistant answers.
-     * @param maxQaTurns Maximum number of user–answer pairs to include (<= 0 means no limit).
+     * @param maxQaTurns Maximum number of user-answer pairs to include (<= 0 means no limit).
      * @param recencyBias When true, prefer most recent QA pairs first; otherwise preserve original order.
      * @return The formatted conversation section (including header) or an empty string if there are no rows to include.
      */
@@ -428,6 +455,7 @@ class LocalSearchContextBuilder(
      * @return A Pair whose first element is the section text (empty string if no rows were added) and whose
      *   second element is the number of tokens consumed by the returned section.
      */
+    @Suppress("CyclomaticComplexMethod")
     private fun buildEntitySection(
         selectedEntities: List<Entity>,
         includeEntityRank: Boolean,
@@ -517,7 +545,7 @@ class LocalSearchContextBuilder(
      * @return A Pair whose first element is the formatted relationships section (empty string if none) and
      * whose second element is the token count used.
      */
-    @Suppress("CyclomaticComplexMethod", "ReturnCount")
+    @Suppress("CyclomaticComplexMethod", "ReturnCount", "LongMethod")
     private fun buildRelationshipSection(
         selectedEntities: List<Entity>,
         includeRelationshipWeight: Boolean,
@@ -674,6 +702,7 @@ class LocalSearchContextBuilder(
      * by up to `topK * selectedIdentifiers.size` external relationships (sorted by external endpoint
      * connectivity and then by the ranking attribute).
      */
+    @Suppress("ReturnCount")
     private fun filterRelationships(
         selectedIdentifiers: Set<String>,
         topK: Int,
@@ -881,7 +910,7 @@ class LocalSearchContextBuilder(
      * @return Pair of the formatted claims section text and the number of tokens consumed by that section;
      * returns an empty string and 0 if no claims are included.
      */
-    @Suppress("ReturnCount")
+    @Suppress("ReturnCount", "LongMethod")
     private fun buildClaimSection(
         selectedEntities: List<Entity>,
         tokenBudget: Int,
@@ -972,7 +1001,7 @@ class LocalSearchContextBuilder(
      * @return A pair containing the formatted covariate section text and the token count consumed by that
      * section; returns an empty string and 0 tokens when no covariates are included.
      */
-    @Suppress("ReturnCount", "LongParameterList")
+    @Suppress("ReturnCount", "LongParameterList", "CyclomaticComplexMethod")
     private fun buildCovariateSection(
         covariateType: String,
         covariateList: List<Covariate>,
@@ -1058,7 +1087,7 @@ class LocalSearchContextBuilder(
      * @return A pair where the first element is the formatted reports section (empty string if nothing was
      * included) and the second element is the token count of that section.
      */
-    @Suppress("ReturnCount", "LongParameterList", "UnusedParameter")
+    @Suppress("ReturnCount", "LongParameterList", "UnusedParameter", "LongMethod", "CyclomaticComplexMethod")
     private fun buildCommunitySection(
         selectedEntities: List<Entity>,
         tokenBudget: Int,
@@ -1175,6 +1204,7 @@ class LocalSearchContextBuilder(
      * @return A SourceSection containing the formatted section string (empty if no rows fit) and the list of
      *   QueryContextChunk objects for each included source.
      */
+    @Suppress("LongMethod", "CyclomaticComplexMethod")
     private suspend fun buildSourceSection(
         selectedEntities: List<Entity>,
         tokenBudget: Int,
@@ -1366,6 +1396,12 @@ class LocalSearchContextBuilder(
      */
     private fun entityChunk(entity: Entity): QueryContextChunk = QueryContextChunk(id = entity.id, text = entity.name, score = 1.0)
 
+    /**
+     * Context section composed of source chunks.
+     *
+     * @property section Section title.
+     * @property chunks Context chunks included in the section.
+     */
     data class SourceSection(
         val section: String,
         val chunks: List<QueryContextChunk>,

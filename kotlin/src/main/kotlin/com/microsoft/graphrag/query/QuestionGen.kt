@@ -22,6 +22,15 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import java.util.concurrent.CompletableFuture
 
+/**
+ * Result of a question generation request.
+ *
+ * @property response Generated questions returned by the model.
+ * @property contextData Context records used to generate the questions.
+ * @property completionTime Total generation time in seconds.
+ * @property llmCalls Number of LLM calls performed.
+ * @property promptTokens Token count of the prompt used.
+ */
 data class QuestionResult(
     val response: List<String>,
     val contextData: Map<String, List<Map<String, String>>>,
@@ -30,6 +39,14 @@ data class QuestionResult(
     val promptTokens: Int,
 )
 
+/**
+ * Local question generator that builds context and streams responses from a chat model.
+ *
+ * @property model Streaming chat model used for generation.
+ * @property contextBuilder Builder used to assemble local context.
+ * @property callbacks Optional callbacks to receive context records.
+ * @property encoding Token encoder used for prompt accounting.
+ */
 class LocalQuestionGen(
     private val model: OpenAiStreamingChatModel,
     private val contextBuilder: LocalSearchContextBuilder,
@@ -138,17 +155,20 @@ class LocalQuestionGen(
         return QuestionResult(
             response = parseQuestions(response),
             contextData =
-                (contextRecords +
-                    mapOf(
-                        "question_context" to
-                            mutableListOf(mutableMapOf("text" to questionText, "in_context" to "true")),
-                    )).toImmutableContextRecords(),
+                contextRecords
+                    .plus(
+                        mapOf(
+                            "question_context" to
+                                mutableListOf(mutableMapOf("text" to questionText, "in_context" to "true")),
+                        ),
+                    ).toImmutableContextRecords(),
             completionTime = completionTime,
             llmCalls = 1,
             promptTokens = encoding.countTokens(systemPrompt),
         )
     }
 
+    @Suppress("ReturnCount")
     private fun parseQuestions(raw: String): List<String> {
         val fallback =
             raw
@@ -178,8 +198,8 @@ class LocalQuestionGen(
      * @param conversationHistoryMaxTurns Maximum number of previous turns to include when constructing
      * conversation history for context building.
      * @param maxContextTokens Maximum number of tokens allowed for built context.
-     * @param textUnitProp Weight (0.0–1.0) controlling the influence of text-unit relevance when building context.
-     * @param communityProp Weight (0.0–1.0) controlling the influence of community relevance when building context.
+     * @param textUnitProp Weight (0.0-1.0) controlling the influence of text-unit relevance when building context.
+     * @param communityProp Weight (0.0-1.0) controlling the influence of community relevance when building context.
      * @param topKMappedEntities Number of top mapped entities to include in built context.
      * @param topKRelationships Number of top relationships to include in built context.
      * @param topKClaims Number of top claims to include in built context.

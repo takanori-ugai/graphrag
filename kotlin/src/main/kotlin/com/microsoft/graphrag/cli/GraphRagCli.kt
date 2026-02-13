@@ -23,6 +23,9 @@ import picocli.CommandLine.Option
 import java.nio.file.Path
 import kotlin.system.exitProcess
 
+/**
+ * Root command for the GraphRAG CLI.
+ */
 @Command(
     name = "graphrag",
     description = ["GraphRAG: A graph-based retrieval-augmented generation (RAG) system."],
@@ -41,6 +44,12 @@ class GraphRagCli : Runnable {
     }
 }
 
+/**
+ * CLI command that generates a default configuration template.
+ *
+ * @property root Project root directory where configuration will be generated.
+ * @property force Whether to overwrite existing configuration.
+ */
 @Command(
     name = "init",
     description = ["Generate a default configuration file."],
@@ -65,6 +74,17 @@ class InitCommand : Runnable {
     }
 }
 
+/**
+ * Shared CLI options for indexing-related commands.
+ *
+ * @property config Optional configuration file path.
+ * @property root Project root directory.
+ * @property verbose Whether to enable verbose logging.
+ * @property memprofile Whether to enable memory profiling.
+ * @property cache Whether LLM cache usage is enabled.
+ * @property skipValidation Whether to skip preflight validation.
+ * @property output Optional output directory override.
+ */
 class SharedIndexOptions {
     @Option(
         names = ["-c", "--config"],
@@ -112,6 +132,12 @@ class SharedIndexOptions {
     var output: Path? = null
 }
 
+/**
+ * CLI command that builds a new index.
+ *
+ * @property method Indexing method identifier.
+ * @property dryRun Whether to validate configuration without executing steps.
+ */
 @Command(
     name = "index",
     description = ["Build a knowledge graph index."],
@@ -152,6 +178,11 @@ class IndexCommand : Runnable {
     }
 }
 
+/**
+ * CLI command that updates an existing index.
+ *
+ * @property method Indexing method identifier.
+ */
 @Command(
     name = "update",
     description = ["Update an existing knowledge graph index."],
@@ -186,6 +217,25 @@ class UpdateCommand : Runnable {
     }
 }
 
+/**
+ * CLI command that generates tuned prompt templates from project data.
+ *
+ * @property root Project root directory.
+ * @property config Optional configuration file path.
+ * @property verbose Whether to enable verbose logging.
+ * @property domain Domain label associated with the input data.
+ * @property selectionMethod Text chunk selection strategy.
+ * @property nSubsetMax Max chunks to embed when using auto selection.
+ * @property k Max docs to select per centroid when using auto selection.
+ * @property limit Max documents to load for random/top selection.
+ * @property maxTokens Maximum token budget for prompt generation.
+ * @property minExamplesRequired Minimum number of examples to generate.
+ * @property chunkSize Size of example text chunks.
+ * @property overlap Overlap between consecutive chunks.
+ * @property language Primary language for inputs and outputs.
+ * @property discoverEntityTypes Whether to infer additional entity types.
+ * @property output Output directory (relative to project root) for prompts.
+ */
 @Command(
     name = "prompt-tune",
     description = ["Generate custom GraphRAG prompts with your own data (auto templating)."],
@@ -304,6 +354,21 @@ class PromptTuneCommand : Runnable {
     }
 }
 
+/**
+ * CLI command that executes a query against an index.
+ *
+ * @property method Query algorithm to use (basic, local, global, drift).
+ * @property query Query text to execute.
+ * @property config Optional configuration file path.
+ * @property verbose Whether to enable verbose logging.
+ * @property data Index output directories that contain parquet files.
+ * @property root Project root directory.
+ * @property communityLevel Community hierarchy level used for reports.
+ * @property dynamicCommunitySelection Whether to enable dynamic community selection.
+ * @property responseType Desired response format for the LLM.
+ * @property streaming Whether to stream the answer token-by-token.
+ * @property driftQuery Optional override query for drift/local searches.
+ */
 @Command(
     name = "query",
     description = ["Query a knowledge graph index."],
@@ -397,6 +462,7 @@ class QueryCommand : Runnable {
      * @throws IllegalStateException if the OPENAI_API_KEY environment variable is not set.
      * @throws CommandLine.ParameterException if the selected query method is unsupported.
      */
+    @Suppress("LongMethod", "CyclomaticComplexMethod")
     override fun run() {
         val selectedMethod = method.lowercase()
 
@@ -431,7 +497,7 @@ class QueryCommand : Runnable {
 
         fun createLocalEngine(callbacks: List<QueryCallbacks>): LocalQueryEngine {
             val modelConfig = queryConfig.local.chat ?: defaultChat
-            val localParams = modelConfig.params ?: defaultChat.params ?: ModelParams()
+            val localParams = modelConfig.params
             return LocalQueryEngine(
                 streamingModel = buildStreamingModel(modelConfig),
                 embeddingModel = buildEmbeddingModel(queryConfig.local.embeddingModel),
@@ -463,7 +529,7 @@ class QueryCommand : Runnable {
             reduceParamsOverride: ModelParams? = null,
         ): GlobalSearchEngine {
             val modelConfig = queryConfig.global.chat ?: defaultChat
-            val baseParams = modelConfig.params ?: defaultChat.params ?: ModelParams()
+            val baseParams = modelConfig.params
             val mapParams = mapParamsOverride ?: baseParams.copy(jsonResponse = true)
             val reduceParams = reduceParamsOverride ?: baseParams.copy(jsonResponse = false)
             return GlobalSearchEngine(
@@ -696,12 +762,14 @@ class QueryCommand : Runnable {
      * @return A map with the same structure as `contextRecords` where records that could be resolved include an
      * `"index_name"` key; unresolved records are unchanged.
      */
+    @Suppress("NestedBlockDepth")
     private fun attachIndexNames(
         contextRecords: Map<String, List<Map<String, String>>>,
         lookup: IndexLookup,
     ): Map<String, List<Map<String, String>>> {
         if (contextRecords.isEmpty() || lookup.indexNames.size <= 1) return contextRecords
 
+        @Suppress("ReturnCount")
         fun findIndex(record: Map<String, String>): String? {
             val candidates =
                 listOf(
@@ -743,6 +811,7 @@ class QueryCommand : Runnable {
      * `reports` list is returned unchanged.
      * @return A list of `CommunityReport` instances whose community depth equals `level`.
      */
+    @Suppress("ReturnCount", "LoopWithTooManyJumpStatements")
     private fun filterCommunityReports(
         reports: List<CommunityReport>,
         hierarchy: Map<Int, Int>,
@@ -772,6 +841,11 @@ class QueryCommand : Runnable {
     }
 }
 
+/**
+ * CLI entrypoint that delegates to Picocli.
+ *
+ * @param args Raw CLI arguments.
+ */
 @Suppress("SpreadOperator")
 fun main(args: Array<String>) {
     val exitCode = CommandLine(GraphRagCli()).execute(*args)

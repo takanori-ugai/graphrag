@@ -20,6 +20,7 @@ import java.nio.file.Path
  * "sample-index/output", executes each query engine with a fixed question and response type, and prints each
  * engine's resulting answer to stdout.
  */
+@Suppress("LongMethod")
 fun main() =
     runBlocking {
         val apiKey = System.getenv("OPENAI_API_KEY") ?: error("Set OPENAI_API_KEY")

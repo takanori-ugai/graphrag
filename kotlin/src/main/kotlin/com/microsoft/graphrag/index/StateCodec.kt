@@ -17,6 +17,10 @@ import kotlinx.serialization.json.JsonPrimitive
  */
 object StateCodec {
     private val logger = KotlinLogging.logger {}
+
+    /**
+     * Serializer used to encode and decode context state maps.
+     */
     val stateSerializer: KSerializer<Map<String, JsonElement>> =
         MapSerializer(String.serializer(), JsonElement.serializer())
 
@@ -31,10 +35,11 @@ object StateCodec {
      *  - Lists where all elements are one of: `DocumentChunk`, `TextUnit`, `Entity`, `Relationship`, `Claim`,
      * `TextEmbedding`, `EntityEmbedding`, `CommunityReportEmbedding`, `CommunityAssignment`, `CommunityReport`,
      * `EntitySummary`
-     *  - Maps of `Int`→`Int` or `String`→`String`
+     *  - Maps of `Int`->`Int` or `String`->`String`
      *  - `String`, `Number`, `Boolean`
      * @return A map with the same keys and `JsonElement` values for supported entries; unsupported entries are omitted.
      */
+    @Suppress("LongMethod", "CyclomaticComplexMethod")
     fun encodeState(state: Map<String, Any?>): Map<String, JsonElement> {
         val json = Json { prettyPrint = false }
         val result = mutableMapOf<String, JsonElement>()
@@ -164,16 +169,17 @@ object StateCodec {
     /**
      * Reconstructs a typed pipeline state map from a JSON-ready map of `JsonElement` values.
      *
-     * Decodes supported keys into their concrete Kotlin types (for example, `"chunks"` → `List<DocumentChunk>`,
-     * `"entities"` → `List<Entity>`, `"covariates"` → `Map<String, List<Covariate>>`, `"community_hierarchy"` →
+     * Decodes supported keys into their concrete Kotlin types (for example, `"chunks"` -> `List<DocumentChunk>`,
+     * `"entities"` -> `List<Entity>`, `"covariates"` -> `Map<String, List<Covariate>>`, `"community_hierarchy"` ->
      * `Map<Int, Int>`,
-     * and `"additional_context"` → `Map<String, String?>`). Unsupported keys are omitted from the result.
+     * and `"additional_context"` -> `Map<String, String?>`). Unsupported keys are omitted from the result.
      *
      * @param encoded A map of state entries encoded as `JsonElement` values (typically produced by the
      * corresponding encoder).
      * @return A map of decoded state entries where values are typed Kotlin objects for supported keys, or
      * omitted for unsupported entries.
      */
+    @Suppress("LongMethod", "CyclomaticComplexMethod", "NestedBlockDepth")
     fun decodeState(encoded: Map<String, JsonElement>): Map<String, Any?> {
         val json = Json { ignoreUnknownKeys = true }
         val out = mutableMapOf<String, Any?>()

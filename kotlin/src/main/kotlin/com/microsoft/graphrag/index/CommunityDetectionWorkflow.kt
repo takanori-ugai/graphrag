@@ -6,8 +6,18 @@ import nl.cwts.util.LargeDoubleArray
 import nl.cwts.util.LargeIntArray
 import java.util.Random
 
+/**
+ * Detects communities in an entity-relationship graph.
+ */
 @Suppress("LoopWithTooManyJumpStatements")
 class CommunityDetectionWorkflow {
+    /**
+     * Runs community detection for the given entities and relationships.
+     *
+     * @param entities Entities to include as nodes.
+     * @param relationships Relationships to include as edges.
+     * @return CommunityDetectionResult containing assignments and hierarchy.
+     */
     @Suppress("UnusedParameter")
     fun detect(
         entities: List<Entity>,

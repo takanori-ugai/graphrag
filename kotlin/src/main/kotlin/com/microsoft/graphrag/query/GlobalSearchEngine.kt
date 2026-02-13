@@ -24,6 +24,20 @@ import kotlinx.serialization.json.jsonPrimitive
 import java.util.concurrent.CompletableFuture
 import kotlin.math.min
 
+/**
+ * Result of a global map-reduce search.
+ *
+ * @property answer Final aggregated answer.
+ * @property mapResponses Map-phase responses for each context chunk.
+ * @property reduceContextText Combined context text used in reduction.
+ * @property contextRecords Structured context records for map/reduce stages.
+ * @property llmCalls Total LLM calls across stages.
+ * @property promptTokens Total prompt tokens across stages.
+ * @property outputTokens Total output tokens across stages.
+ * @property llmCallsCategories LLM call counts grouped by stage.
+ * @property promptTokensCategories Prompt token counts grouped by stage.
+ * @property outputTokensCategories Output token counts grouped by stage.
+ */
 data class GlobalSearchResult(
     val answer: String,
     val mapResponses: List<QueryResult>,
@@ -63,6 +77,7 @@ private data class RatingResult(
 /**
  * Global search engine that mirrors Python's map-reduce flow over community reports.
  */
+@Suppress("LongParameterList", "TooManyFunctions")
 class GlobalSearchEngine(
     private val streamingModel: OpenAiStreamingChatModel,
     private val communityReports: List<CommunityReport>,
@@ -164,6 +179,7 @@ class GlobalSearchEngine(
      * and aggregated LLM usage counts (llmCalls, promptTokens, outputTokens) attributable to the
      * context-building step.
      */
+    @Suppress("LongMethod", "CyclomaticComplexMethod")
     private suspend fun buildContextChunks(
         question: String,
         conversationHistory: List<String>,
@@ -247,6 +263,7 @@ class GlobalSearchEngine(
      *         (under the "reports" key when present), and aggregated LLM usage metrics: llmCalls, promptTokens,
      *         and outputTokens.
      */
+    @Suppress("LongMethod", "CyclomaticComplexMethod", "NestedBlockDepth", "ReturnCount")
     private suspend fun selectReports(
         question: String,
         conversationHistory: List<String>,
@@ -352,6 +369,7 @@ class GlobalSearchEngine(
      * @param communityId The identifier of the community whose level to compute.
      * @return The number of ancestor links between the community and the root (root communities return 0).
      */
+    @Suppress("LoopWithTooManyJumpStatements")
     private fun levelOf(communityId: Int): Int {
         var current: Int? = communityId
         var level = 0
@@ -472,6 +490,7 @@ class GlobalSearchEngine(
      * token/LLM usage categorized for the reduce phase (or a `NO_DATA_ANSWER` result with zero usage when no
      * data is usable).
      */
+    @Suppress("LongMethod", "CyclomaticComplexMethod")
     private suspend fun reduceStep(
         question: String,
         mapResponses: List<QueryResult>,
@@ -675,6 +694,7 @@ class GlobalSearchEngine(
      * complete answer
      *         is the concatenation of all emitted chunks, and the flow completes when the reduce response finishes.
      */
+    @Suppress("LongMethod", "CyclomaticComplexMethod")
     fun streamSearch(
         question: String,
         conversationHistory: List<String> = emptyList(),

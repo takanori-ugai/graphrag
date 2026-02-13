@@ -6,11 +6,26 @@ import dev.langchain4j.data.message.UserMessage
 import dev.langchain4j.model.openai.OpenAiChatModel
 import io.github.oshai.kotlinlogging.KotlinLogging
 
+/**
+ * Extracts claims from document chunks using an LLM.
+ *
+ * @property chatModel Chat model used for claim extraction.
+ * @property prompts Repository that provides prompt templates.
+ * @property objectMapper Mapper used to parse JSON responses.
+ */
 class ClaimsWorkflow(
     private val chatModel: OpenAiChatModel,
     private val prompts: PromptRepository = PromptRepository(),
     private val objectMapper: ObjectMapper = ObjectMapper().findAndRegisterModules(),
 ) {
+    /**
+     * Extracts claims from the provided document chunks.
+     *
+     * @param chunks Document chunks to process.
+     * @param entitySpecs Entity type spec string inserted into the prompt.
+     * @param claimDescription Claim description inserted into the prompt.
+     * @return List of extracted claims.
+     */
     fun extractClaims(
         chunks: List<DocumentChunk>,
         entitySpecs: String = "ORGANIZATION,PERSON,GPE",
@@ -37,6 +52,7 @@ class ClaimsWorkflow(
         return claims
     }
 
+    @Suppress("ReturnCount")
     private fun extractClaimsJson(prompt: String): List<Claim> {
         val messages =
             listOf<ChatMessage>(
