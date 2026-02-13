@@ -117,10 +117,50 @@ class ExtractGraphWorkflow(
         value.trim().replace(CONTROL_CHAR_REGEX, "")
 
     private fun extractJsonObject(text: String): String? {
+        val fenced = extractFromCodeFence(text)
+        if (fenced != null) return fenced
+        return extractBalancedJson(text)
+    }
+
+    private fun extractFromCodeFence(text: String): String? {
+        val fenceRegex = Regex("```(?:json)?\\s*([\\s\\S]*?)\\s*```", RegexOption.IGNORE_CASE)
+        val match =
+            fenceRegex
+                .findAll(text)
+                .firstOrNull { it.groupValues[1].contains('{') }
+                ?: return null
+        return extractBalancedJson(match.groupValues[1])
+    }
+
+    private fun extractBalancedJson(text: String): String? {
         val start = text.indexOf('{')
-        val end = text.lastIndexOf('}')
-        if (start == -1 || end == -1 || end <= start) return null
-        return text.substring(start, end + 1)
+        if (start == -1) return null
+        var depth = 0
+        var inString = false
+        var escape = false
+        for (i in start until text.length) {
+            val c = text[i]
+            if (inString) {
+                if (escape) {
+                    escape = false
+                } else {
+                    when (c) {
+                        '\\' -> escape = true
+                        '"' -> inString = false
+                    }
+                }
+                continue
+            }
+            when (c) {
+                '"' -> inString = true
+                '{' -> depth++
+                '}' -> {
+                    depth--
+                    if (depth == 0) return text.substring(start, i + 1)
+                }
+            }
+        }
+        return null
     }
 
     private data class EntityAccumulator(
