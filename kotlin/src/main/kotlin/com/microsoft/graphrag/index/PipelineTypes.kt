@@ -29,6 +29,7 @@ data class GraphRagConfig(
     val inputDir: Path,
     val outputDir: Path,
     val updateOutputDir: Path,
+    val extractGraphOptions: ExtractGraphOptions = ExtractGraphOptions(),
 )
 
 interface WorkflowCallbacks {

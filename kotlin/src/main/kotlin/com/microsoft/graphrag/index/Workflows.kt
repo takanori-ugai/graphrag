@@ -3,6 +3,9 @@ package com.microsoft.graphrag.index
 import dev.langchain4j.model.chat.Capability.RESPONSE_FORMAT_JSON_SCHEMA
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import java.time.Instant
 
 /**
@@ -51,6 +54,11 @@ private fun validateApiKey() {
 private val openAiApiKey: String by lazy { defaultApiKey() }
 
 private val sharedChatModel: dev.langchain4j.model.openai.OpenAiChatModel by lazy { defaultChatModel() }
+private val sharedJson =
+    Json {
+        prettyPrint = true
+        encodeDefaults = true
+    }
 
 /**
  * Loads documents from the configured input directory, splits them into chunks, and records the results in the
@@ -90,11 +98,17 @@ private suspend fun extractGraph(
     config: GraphRagConfig,
     context: PipelineRunContext,
 ): WorkflowResult {
-    val chunks = context.state["chunks"] as? List<DocumentChunk> ?: emptyList()
+    val chunks = context.state.getList<DocumentChunk>("chunks")
     val chatModel = sharedChatModel
 
     val extractor = ExtractGraphWorkflow(chatModel)
-    val result = extractor.extract(chunks)
+    val result =
+        extractor.extract(
+            chunks = chunks,
+            cache = context.cache,
+            options = config.extractGraphOptions,
+            progress = { context.callbacks.progress(it) },
+        )
     context.state["entities"] = result.entities
     context.state["relationships"] = result.relationships
     context.outputStorage.set(
@@ -119,7 +133,7 @@ private suspend fun extractClaims(
     config: GraphRagConfig,
     context: PipelineRunContext,
 ): WorkflowResult {
-    val chunks = context.state["chunks"] as? List<DocumentChunk> ?: emptyList()
+    val chunks = context.state.getList<DocumentChunk>("chunks")
     val chatModel = sharedChatModel
     val claimsWorkflow = ClaimsWorkflow(chatModel)
     val claims = claimsWorkflow.extractClaims(chunks)
@@ -145,7 +159,7 @@ private suspend fun embedText(
     config: GraphRagConfig,
     context: PipelineRunContext,
 ): WorkflowResult {
-    val chunks = context.state["chunks"] as? List<DocumentChunk> ?: emptyList()
+    val chunks = context.state.getList<DocumentChunk>("chunks")
     val embedder = EmbedWorkflow(defaultEmbeddingModel(openAiApiKey))
     val textEmbeddings =
         embedder.embedChunks(
@@ -174,7 +188,7 @@ private suspend fun embedGraph(
     config: GraphRagConfig,
     context: PipelineRunContext,
 ): WorkflowResult {
-    val entities = context.state["entities"] as? List<Entity> ?: emptyList()
+    val entities = context.state.getList<Entity>("entities")
     val embedder = EmbedWorkflow(defaultEmbeddingModel(openAiApiKey))
     val entityEmbeddings =
         embedder.embedEntities(
@@ -206,11 +220,11 @@ private suspend fun summarizeDescriptions(
     config: GraphRagConfig,
     context: PipelineRunContext,
 ): WorkflowResult {
-    val entities = context.state["entities"] as? List<Entity> ?: emptyList()
-    val relationships = context.state["relationships"] as? List<Relationship> ?: emptyList()
+    val entities = context.state.getList<Entity>("entities")
+    val relationships = context.state.getList<Relationship>("relationships")
     val chatModel = sharedChatModel
     val summarizer = SummarizeDescriptionsWorkflow(chatModel)
-    val textUnits = context.state["text_units"] as? List<TextUnit> ?: emptyList()
+    val textUnits = context.state.getList<TextUnit>("text_units")
     val summaries = summarizer.summarize(entities, relationships, textUnits)
     context.state["entity_summaries"] = summaries.entitySummaries
     context.state["relationships"] = summaries.relationships
@@ -226,8 +240,8 @@ private suspend fun buildGraph(
     config: GraphRagConfig,
     context: PipelineRunContext,
 ): WorkflowResult {
-    val entities = context.state["entities"] as? List<Entity> ?: emptyList()
-    val relationships = context.state["relationships"] as? List<Relationship> ?: emptyList()
+    val entities = context.state.getList<Entity>("entities")
+    val relationships = context.state.getList<Relationship>("relationships")
     val graph = GraphBuilder().buildGraph(entities, relationships)
     context.state["graph"] = graph
     context.outputStorage.set(
@@ -256,23 +270,21 @@ private suspend fun writeOutputs(
     config: GraphRagConfig,
     context: PipelineRunContext,
 ): WorkflowResult {
-    val entities = context.state["entities"] as? List<Entity> ?: emptyList()
-    val relationships = context.state["relationships"] as? List<Relationship> ?: emptyList()
+    val entities = context.state.getList<Entity>("entities")
+    val relationships = context.state.getList<Relationship>("relationships")
     val writer = ParquetWriterHelper()
-    val textEmbeddings = context.state["text_embeddings"] as? List<TextEmbedding> ?: emptyList()
-    val entityEmbeddings = context.state["entity_embeddings"] as? List<EntityEmbedding> ?: emptyList()
-    val communities = context.state["communities"] as? List<CommunityAssignment> ?: emptyList()
-    val reports = context.state["community_reports"] as? List<CommunityReport> ?: emptyList()
-    val claims = context.state["claims"] as? List<Claim> ?: emptyList()
-    val textUnits = context.state["text_units"] as? List<TextUnit> ?: emptyList()
-    val summaries = context.state["entity_summaries"] as? List<EntitySummary> ?: emptyList()
+    val textEmbeddings = context.state.getList<TextEmbedding>("text_embeddings")
+    val entityEmbeddings = context.state.getList<EntityEmbedding>("entity_embeddings")
+    val communities = context.state.getList<CommunityAssignment>("communities")
+    val reports = context.state.getList<CommunityReport>("community_reports")
+    val claims = context.state.getList<Claim>("claims")
+    val textUnits = context.state.getList<TextUnit>("text_units")
+    val summaries = context.state.getList<EntitySummary>("entity_summaries")
     val reportsJson =
-        kotlinx.serialization.json
-            .Json { prettyPrint = true }
-            .encodeToString(
-                kotlinx.serialization.builtins.ListSerializer(CommunityReport.serializer()),
-                reports,
-            )
+        sharedJson.encodeToString(
+            ListSerializer(CommunityReport.serializer()),
+            reports,
+        )
     withContext(Dispatchers.IO) {
         writer.writeEntities(config.outputDir.resolve("entities.parquet"), entities)
         writer.writeRelationships(config.outputDir.resolve("relationships.parquet"), relationships)
@@ -300,8 +312,8 @@ private suspend fun communityDetection(
     config: GraphRagConfig,
     context: PipelineRunContext,
 ): WorkflowResult {
-    val entities = context.state["entities"] as? List<Entity> ?: emptyList()
-    val relationships = context.state["relationships"] as? List<Relationship> ?: emptyList()
+    val entities = context.state.getList<Entity>("entities")
+    val relationships = context.state.getList<Relationship>("relationships")
     val detector = CommunityDetectionWorkflow()
     val detection = detector.detect(entities, relationships)
     val assignments = detection.assignments
@@ -331,11 +343,11 @@ private suspend fun communityReports(
     config: GraphRagConfig,
     context: PipelineRunContext,
 ): WorkflowResult {
-    val communities = context.state["communities"] as? List<CommunityAssignment> ?: emptyList()
-    val entities = context.state["entities"] as? List<Entity> ?: emptyList()
-    val relationships = context.state["relationships"] as? List<Relationship> ?: emptyList()
-    val textUnits = context.state["text_units"] as? List<TextUnit> ?: emptyList()
-    val claims = context.state["claims"] as? List<Claim> ?: emptyList()
+    val communities = context.state.getList<CommunityAssignment>("communities")
+    val entities = context.state.getList<Entity>("entities")
+    val relationships = context.state.getList<Relationship>("relationships")
+    val textUnits = context.state.getList<TextUnit>("text_units")
+    val claims = context.state.getList<Claim>("claims")
     val hierarchy =
         (context.state["community_hierarchy"] as? Map<*, *> ?: emptyMap<Any, Any>())
             .mapNotNull { (k, v) ->
@@ -343,7 +355,7 @@ private suspend fun communityReports(
                 val value = v as? Int
                 if (key != null) key to value else null
             }.toMap()
-    val priorReports = context.state["community_reports"] as? List<CommunityReport> ?: emptyList()
+    val priorReports = context.state.getList<CommunityReport>("community_reports")
     val chatModel = sharedChatModel
     val reporter = CommunityReportWorkflow(chatModel)
     val reports =

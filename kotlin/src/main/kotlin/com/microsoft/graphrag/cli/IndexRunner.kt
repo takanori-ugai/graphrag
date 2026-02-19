@@ -1,6 +1,6 @@
 package com.microsoft.graphrag.cli
 
-import com.microsoft.graphrag.index.GraphRagConfig
+import com.microsoft.graphrag.index.IndexConfigLoader
 import com.microsoft.graphrag.index.NoopWorkflowCallbacks
 import com.microsoft.graphrag.index.PipelineRunResult
 import com.microsoft.graphrag.index.defaultPipeline
@@ -35,18 +35,17 @@ class IndexRunner(
             return
         }
 
-        val config =
-            GraphRagConfig(
-                rootDir = options.root,
-                inputDir = options.root.resolve("input"),
-                outputDir = options.output?.resolve("output") ?: options.root.resolve("output"),
-                updateOutputDir = options.output?.resolve("update_output") ?: options.root.resolve("update_output"),
+        val indexConfig =
+            IndexConfigLoader.load(
+                root = options.root,
+                configPath = options.config,
+                overrideOutputDir = options.output,
             )
 
         runBlocking {
             runPipeline(
                 pipeline = defaultPipeline(),
-                config = config,
+                config = indexConfig.graphConfig,
                 callbacks = NoopWorkflowCallbacks(),
                 isUpdateRun = options.isUpdate,
             ).collect { result: PipelineRunResult ->
