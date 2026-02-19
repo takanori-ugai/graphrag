@@ -58,8 +58,6 @@ object IndexConfigLoader {
 
         val updateOutputDir = outputDir.resolve("update_output")
 
-        val extractOptions = buildExtractGraphOptions(configRoot, raw.extractGraph)
-
         return IndexConfig(
             graphConfig =
                 GraphRagConfig(
@@ -67,34 +65,7 @@ object IndexConfigLoader {
                     inputDir = inputDir,
                     outputDir = outputDir,
                     updateOutputDir = updateOutputDir,
-                    extractGraphOptions = extractOptions,
                 ),
-        )
-    }
-
-    private fun buildExtractGraphOptions(
-        root: Path,
-        raw: RawExtractGraph?,
-    ): ExtractGraphOptions {
-        if (raw == null) return ExtractGraphOptions()
-
-        val promptOverride =
-            raw.prompt?.let { promptPath ->
-                val resolved = root.resolve(promptPath).normalize()
-                if (Files.exists(resolved)) {
-                    Files.readString(resolved)
-                } else {
-                    logger.warn { "Extract graph prompt not found at $resolved; using default prompt." }
-                    null
-                }
-            }
-
-        return ExtractGraphOptions(
-            entityTypes = raw.entityTypes ?: ExtractGraphWorkflow.DEFAULT_ENTITY_TYPES,
-            maxConcurrency = raw.maxConcurrency ?: 4,
-            useCache = raw.useCache ?: true,
-            cacheKeyPrefix = raw.cacheKeyPrefix ?: "extract_graph",
-            promptOverride = promptOverride,
         )
     }
 
@@ -115,7 +86,6 @@ data class RawIndexConfig(
     @param:JsonProperty("root_dir") val rootDir: String? = null,
     @param:JsonProperty("input") val input: RawInput? = null,
     @param:JsonProperty("output") val output: RawOutput? = null,
-    @param:JsonProperty("extract_graph") val extractGraph: RawExtractGraph? = null,
 )
 
 @JsonIgnoreProperties(ignoreUnknown = true)
@@ -132,13 +102,4 @@ data class RawOutput(
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class RawStorage(
     @param:JsonProperty("base_dir") val baseDir: String? = null,
-)
-
-@JsonIgnoreProperties(ignoreUnknown = true)
-data class RawExtractGraph(
-    @param:JsonProperty("prompt") val prompt: String? = null,
-    @param:JsonProperty("entity_types") val entityTypes: List<String>? = null,
-    @param:JsonProperty("max_concurrency") val maxConcurrency: Int? = null,
-    @param:JsonProperty("use_cache") val useCache: Boolean? = null,
-    @param:JsonProperty("cache_key_prefix") val cacheKeyPrefix: String? = null,
 )

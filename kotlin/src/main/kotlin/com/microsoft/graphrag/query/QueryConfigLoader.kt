@@ -16,6 +16,19 @@ import io.github.oshai.kotlinlogging.KotlinLogging
 import java.nio.file.Files
 import java.nio.file.Path
 
+/**
+ * Fully resolved query configuration for a project.
+ *
+ * @property root Project root directory.
+ * @property indexes List of available query indexes.
+ * @property defaultChatModel Default chat model configuration.
+ * @property defaultEmbeddingModel Default embedding model name.
+ * @property basic Basic search configuration.
+ * @property local Local search configuration.
+ * @property global Global search configuration.
+ * @property drift Drift search configuration.
+ * @property questionPrompt Prompt template used for question generation.
+ */
 data class QueryConfig(
     val root: Path,
     val indexes: List<QueryIndexConfig>,
@@ -28,16 +41,37 @@ data class QueryConfig(
     val questionPrompt: String,
 )
 
+/**
+ * Defines a named index location for querying.
+ *
+ * @property name Human-readable index name.
+ * @property path Filesystem path to the index output directory.
+ */
 data class QueryIndexConfig(
     val name: String,
     val path: Path,
 )
 
+/**
+ * Chat model configuration and tuning parameters.
+ *
+ * @property model Model name or identifier.
+ * @property params Optional parameter overrides for the model.
+ */
 data class QueryModelConfig(
     val model: String?,
     val params: ModelParams = ModelParams(),
 )
 
+/**
+ * Configuration for basic search mode.
+ *
+ * @property prompt System prompt template.
+ * @property chat Chat model configuration to use.
+ * @property embeddingModel Embedding model name to use.
+ * @property k Number of nearest neighbors to include.
+ * @property maxContextTokens Maximum tokens allowed in the built context.
+ */
 data class BasicSearchConfig(
     val prompt: String,
     val chat: QueryModelConfig?,
@@ -46,6 +80,19 @@ data class BasicSearchConfig(
     val maxContextTokens: Int,
 )
 
+/**
+ * Configuration for local search mode.
+ *
+ * @property prompt System prompt template.
+ * @property chat Chat model configuration to use.
+ * @property embeddingModel Embedding model name to use.
+ * @property textUnitProp Proportion of text units to include.
+ * @property communityProp Proportion of community context to include.
+ * @property conversationHistoryMaxTurns Max turns of conversation history to keep.
+ * @property topKEntities Number of entities to include.
+ * @property topKRelationships Number of relationships to include.
+ * @property maxContextTokens Maximum tokens allowed in the built context.
+ */
 data class LocalSearchConfig(
     val prompt: String,
     val chat: QueryModelConfig?,
@@ -58,6 +105,15 @@ data class LocalSearchConfig(
     val maxContextTokens: Int,
 )
 
+/**
+ * Configuration for dynamic community selection in global search.
+ *
+ * @property threshold Minimum number of members to keep a community.
+ * @property keepParent Whether to include parent communities in selection.
+ * @property numRepeats Number of dynamic selection passes.
+ * @property useSummary Whether to use community summaries when selecting.
+ * @property maxLevel Maximum depth to search.
+ */
 data class DynamicCommunityConfig(
     val threshold: Int,
     val keepParent: Boolean,
@@ -66,6 +122,21 @@ data class DynamicCommunityConfig(
     val maxLevel: Int,
 )
 
+/**
+ * Configuration for global search mode.
+ *
+ * @property mapPrompt System prompt used for the map step.
+ * @property reducePrompt System prompt used for the reduce step.
+ * @property knowledgePrompt Optional prompt used for general knowledge.
+ * @property chat Chat model configuration to use.
+ * @property embeddingModel Embedding model name to use.
+ * @property allowGeneralKnowledge Whether the model may answer from general knowledge.
+ * @property mapMaxLength Maximum length of map results.
+ * @property reduceMaxLength Maximum length of reduce results.
+ * @property maxContextTokens Maximum tokens allowed in the built context.
+ * @property dataMaxTokens Maximum tokens allowed for data payloads.
+ * @property dynamic Dynamic community selection parameters.
+ */
 data class GlobalSearchConfig(
     val mapPrompt: String,
     val reducePrompt: String,
@@ -80,6 +151,15 @@ data class GlobalSearchConfig(
     val dynamic: DynamicCommunityConfig,
 )
 
+/**
+ * Configuration for drift search mode.
+ *
+ * @property prompt System prompt for the primer step.
+ * @property reducePrompt System prompt for the reduce step.
+ * @property chat Chat model configuration to use.
+ * @property embeddingModel Embedding model name to use.
+ * @property maxIterations Maximum number of follow-up iterations.
+ */
 data class DriftSearchConfig(
     val prompt: String,
     val reducePrompt: String,
@@ -88,6 +168,9 @@ data class DriftSearchConfig(
     val maxIterations: Int,
 )
 
+/**
+ * Loads and resolves query configuration from a settings file.
+ */
 object QueryConfigLoader {
     private const val DEFAULT_CHAT_ID = "default_chat_model"
     private const val DEFAULT_EMBEDDING_ID = "default_embedding_model"
@@ -117,6 +200,7 @@ object QueryConfigLoader {
      * and the assembled BasicSearchConfig, LocalSearchConfig, GlobalSearchConfig, DriftSearchConfig, and
      * question prompt.
      */
+    @Suppress("LongMethod", "CyclomaticComplexMethod", "ReturnCount")
     fun load(
         root: Path,
         configPath: Path?,
@@ -235,6 +319,7 @@ object QueryConfigLoader {
      * creation.
      * @return A fully populated QueryConfig with provided or default indexes and default model/search settings.
      */
+    @Suppress("LongMethod")
     private fun defaultConfig(
         root: Path,
         indexConfigs: List<QueryIndexConfig>,
@@ -320,6 +405,7 @@ object QueryConfigLoader {
      * @param overrideDirs If non-empty, these explicit directories take precedence and each becomes an index entry.
      * @return A list of QueryIndexConfig instances with sanitized names and normalized paths.
      */
+    @Suppress("ReturnCount")
     private fun buildIndexConfigs(
         configRoot: Path,
         raw: RawConfig?,
@@ -420,77 +506,77 @@ object QueryConfigLoader {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private data class RawConfig(
-        @JsonProperty("root_dir") val rootDir: String? = null,
+        @param:JsonProperty("root_dir") val rootDir: String? = null,
         val output: RawStorageConfig? = null,
         val outputs: Map<String, RawStorageConfig> = emptyMap(),
         val models: Map<String, RawModelConfig> = emptyMap(),
-        @JsonProperty("basic_search") val basicSearch: RawBasicSearch? = null,
-        @JsonProperty("local_search") val localSearch: RawLocalSearch? = null,
-        @JsonProperty("global_search") val globalSearch: RawGlobalSearch? = null,
-        @JsonProperty("drift_search") val driftSearch: RawDriftSearch? = null,
-        @JsonProperty("question_gen_prompt") val questionGenPrompt: String? = null,
+        @param:JsonProperty("basic_search") val basicSearch: RawBasicSearch? = null,
+        @param:JsonProperty("local_search") val localSearch: RawLocalSearch? = null,
+        @param:JsonProperty("global_search") val globalSearch: RawGlobalSearch? = null,
+        @param:JsonProperty("drift_search") val driftSearch: RawDriftSearch? = null,
+        @param:JsonProperty("question_gen_prompt") val questionGenPrompt: String? = null,
     )
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private data class RawStorageConfig(
-        @JsonProperty("base_dir") val baseDir: String? = null,
+        @param:JsonProperty("base_dir") val baseDir: String? = null,
     )
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private data class RawModelConfig(
         val model: String? = null,
         val temperature: Double? = null,
-        @JsonProperty("top_p") val topP: Double? = null,
-        @JsonProperty("max_tokens") val maxTokens: Int? = null,
-        @JsonProperty("max_completion_tokens") val maxCompletionTokens: Int? = null,
+        @param:JsonProperty("top_p") val topP: Double? = null,
+        @param:JsonProperty("max_tokens") val maxTokens: Int? = null,
+        @param:JsonProperty("max_completion_tokens") val maxCompletionTokens: Int? = null,
     )
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private data class RawBasicSearch(
         val prompt: String? = null,
-        @JsonProperty("chat_model_id") val chatModelId: String? = null,
-        @JsonProperty("embedding_model_id") val embeddingModelId: String? = null,
+        @param:JsonProperty("chat_model_id") val chatModelId: String? = null,
+        @param:JsonProperty("embedding_model_id") val embeddingModelId: String? = null,
         val k: Int? = null,
-        @JsonProperty("max_context_tokens") val maxContextTokens: Int? = null,
+        @param:JsonProperty("max_context_tokens") val maxContextTokens: Int? = null,
     )
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private data class RawLocalSearch(
         val prompt: String? = null,
-        @JsonProperty("chat_model_id") val chatModelId: String? = null,
-        @JsonProperty("embedding_model_id") val embeddingModelId: String? = null,
-        @JsonProperty("text_unit_prop") val textUnitProp: Double? = null,
-        @JsonProperty("community_prop") val communityProp: Double? = null,
-        @JsonProperty("conversation_history_max_turns") val conversationHistoryMaxTurns: Int? = null,
-        @JsonProperty("top_k_entities") val topKEntities: Int? = null,
-        @JsonProperty("top_k_relationships") val topKRelationships: Int? = null,
-        @JsonProperty("max_context_tokens") val maxContextTokens: Int? = null,
+        @param:JsonProperty("chat_model_id") val chatModelId: String? = null,
+        @param:JsonProperty("embedding_model_id") val embeddingModelId: String? = null,
+        @param:JsonProperty("text_unit_prop") val textUnitProp: Double? = null,
+        @param:JsonProperty("community_prop") val communityProp: Double? = null,
+        @param:JsonProperty("conversation_history_max_turns") val conversationHistoryMaxTurns: Int? = null,
+        @param:JsonProperty("top_k_entities") val topKEntities: Int? = null,
+        @param:JsonProperty("top_k_relationships") val topKRelationships: Int? = null,
+        @param:JsonProperty("max_context_tokens") val maxContextTokens: Int? = null,
     )
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private data class RawGlobalSearch(
-        @JsonProperty("map_prompt") val mapPrompt: String? = null,
-        @JsonProperty("reduce_prompt") val reducePrompt: String? = null,
-        @JsonProperty("knowledge_prompt") val knowledgePrompt: String? = null,
-        @JsonProperty("chat_model_id") val chatModelId: String? = null,
-        @JsonProperty("embedding_model_id") val embeddingModelId: String? = null,
-        @JsonProperty("map_max_length") val mapMaxLength: Int? = null,
-        @JsonProperty("reduce_max_length") val reduceMaxLength: Int? = null,
-        @JsonProperty("max_context_tokens") val maxContextTokens: Int? = null,
-        @JsonProperty("data_max_tokens") val dataMaxTokens: Int? = null,
-        @JsonProperty("dynamic_search_threshold") val dynamicSearchThreshold: Int? = null,
-        @JsonProperty("dynamic_search_keep_parent") val dynamicSearchKeepParent: Boolean? = null,
-        @JsonProperty("dynamic_search_num_repeats") val dynamicSearchNumRepeats: Int? = null,
-        @JsonProperty("dynamic_search_use_summary") val dynamicSearchUseSummary: Boolean? = null,
-        @JsonProperty("dynamic_search_max_level") val dynamicSearchMaxLevel: Int? = null,
+        @param:JsonProperty("map_prompt") val mapPrompt: String? = null,
+        @param:JsonProperty("reduce_prompt") val reducePrompt: String? = null,
+        @param:JsonProperty("knowledge_prompt") val knowledgePrompt: String? = null,
+        @param:JsonProperty("chat_model_id") val chatModelId: String? = null,
+        @param:JsonProperty("embedding_model_id") val embeddingModelId: String? = null,
+        @param:JsonProperty("map_max_length") val mapMaxLength: Int? = null,
+        @param:JsonProperty("reduce_max_length") val reduceMaxLength: Int? = null,
+        @param:JsonProperty("max_context_tokens") val maxContextTokens: Int? = null,
+        @param:JsonProperty("data_max_tokens") val dataMaxTokens: Int? = null,
+        @param:JsonProperty("dynamic_search_threshold") val dynamicSearchThreshold: Int? = null,
+        @param:JsonProperty("dynamic_search_keep_parent") val dynamicSearchKeepParent: Boolean? = null,
+        @param:JsonProperty("dynamic_search_num_repeats") val dynamicSearchNumRepeats: Int? = null,
+        @param:JsonProperty("dynamic_search_use_summary") val dynamicSearchUseSummary: Boolean? = null,
+        @param:JsonProperty("dynamic_search_max_level") val dynamicSearchMaxLevel: Int? = null,
     )
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private data class RawDriftSearch(
         val prompt: String? = null,
-        @JsonProperty("reduce_prompt") val reducePrompt: String? = null,
-        @JsonProperty("chat_model_id") val chatModelId: String? = null,
-        @JsonProperty("embedding_model_id") val embeddingModelId: String? = null,
-        @JsonProperty("n_depth") val nDepth: Int? = null,
+        @param:JsonProperty("reduce_prompt") val reducePrompt: String? = null,
+        @param:JsonProperty("chat_model_id") val chatModelId: String? = null,
+        @param:JsonProperty("embedding_model_id") val embeddingModelId: String? = null,
+        @param:JsonProperty("n_depth") val nDepth: Int? = null,
     )
 }

@@ -5,6 +5,7 @@ import com.microsoft.graphrag.query.BasicQueryEngine
 import com.microsoft.graphrag.query.DriftSearchEngine
 import com.microsoft.graphrag.query.GlobalSearchEngine
 import com.microsoft.graphrag.query.LocalQueryEngine
+import com.microsoft.graphrag.query.ModelParams
 import com.microsoft.graphrag.query.QueryIndexLoader
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel
 import kotlinx.coroutines.runBlocking
@@ -19,6 +20,7 @@ import java.nio.file.Path
  * "sample-index/output", executes each query engine with a fixed question and response type, and prints each
  * engine's resulting answer to stdout.
  */
+@Suppress("LongMethod")
 fun main() =
     runBlocking {
         val apiKey = System.getenv("OPENAI_API_KEY") ?: error("Set OPENAI_API_KEY")
@@ -35,7 +37,7 @@ fun main() =
         val index = QueryIndexLoader(indexDir).load()
 
         val question = "Summarize key entities and relationships in the sample index."
-        val responseType = "multiple paragraphs"
+        val responseType = "JSON response (response, score, follow_up_queries)"
 
         // Basic
         val basicResult =
@@ -65,9 +67,7 @@ fun main() =
                 covariates = index.covariates,
                 communities = index.communities,
                 communityReports = index.communityReports,
-                modelParams =
-                    com.microsoft.graphrag.query
-                        .ModelParams(jsonResponse = false),
+                modelParams = ModelParams(jsonResponse = false),
             )
         val localResult = localEngine.answer(question, responseType)
         println("\n=== LOCAL ===")

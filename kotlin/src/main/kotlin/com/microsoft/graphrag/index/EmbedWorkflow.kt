@@ -9,6 +9,11 @@ import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+/**
+ * Generates embeddings for document chunks and entities.
+ *
+ * @property embeddingModel Embedding model used for vector generation.
+ */
 class EmbedWorkflow(
     private val embeddingModel: EmbeddingModel,
 ) {
@@ -79,9 +84,9 @@ class EmbedWorkflow(
             val response: Response<dev.langchain4j.data.embedding.Embedding> = embeddingModel.embed(text)
             response
                 .content()
-                ?.vector()
-                ?.asList()
-                ?.map { it.toDouble() }
+                .vector()
+                .asList()
+                .map { it.toDouble() }
         }.getOrElse { e ->
             logger.warn(e) { "Embedding failed for text: ${text.take(50)}..." }
             null

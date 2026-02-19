@@ -151,6 +151,8 @@ suspend fun runPipeline(
         }
     }
 
+private val prettyJson = Json { prettyPrint = true }
+
 /**
  * Load the persisted pipeline run state from `context.json` in the given storage.
  *
@@ -162,7 +164,7 @@ suspend fun runPipeline(
  */
 private suspend fun loadExistingState(storage: PipelineStorage): Map<String, Any?> {
     val stateJson = storage.get("context.json") ?: return emptyMap()
-    val elementMap: Map<String, kotlinx.serialization.json.JsonElement> = sharedJson.decodeFromString(StateCodec.stateSerializer, stateJson)
+    val elementMap: Map<String, kotlinx.serialization.json.JsonElement> = Json.decodeFromString(StateCodec.stateSerializer, stateJson)
     return StateCodec.decodeState(elementMap).toMutableMap()
 }
 
@@ -178,12 +180,12 @@ private suspend fun loadExistingState(storage: PipelineStorage): Map<String, Any
  */
 private suspend fun dumpJson(context: PipelineRunContext) {
     val statsSnapshot = StatsSnapshot(context.stats.workflows, context.stats.totalRuntime)
-    val statsJson = sharedJson.encodeToString(statsSnapshot)
+    val statsJson = prettyJson.encodeToString(statsSnapshot)
     context.outputStorage.set("stats.json", statsJson)
 
     val temp = context.state.remove("additional_context")
     try {
-        val stateJson = sharedJson.encodeToString(StateCodec.stateSerializer, StateCodec.encodeState(context.state))
+        val stateJson = prettyJson.encodeToString(StateCodec.stateSerializer, StateCodec.encodeState(context.state))
         context.outputStorage.set("context.json", stateJson)
     } finally {
         if (temp != null) {
@@ -230,9 +232,3 @@ private data class StatsSnapshot(
     val workflows: Map<String, Map<String, Double>>,
     val totalRuntime: Double,
 )
-
-private val sharedJson =
-    Json {
-        prettyPrint = true
-        encodeDefaults = true
-    }

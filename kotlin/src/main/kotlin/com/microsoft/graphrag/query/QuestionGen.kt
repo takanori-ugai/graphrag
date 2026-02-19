@@ -6,6 +6,8 @@ import com.knuddels.jtokkit.api.EncodingType
 import com.microsoft.graphrag.prompts.query.QUESTION_SYSTEM_PROMPT
 import com.microsoft.graphrag.query.LocalSearchContextBuilder.ConversationHistory
 import com.microsoft.graphrag.query.LocalSearchContextBuilder.ConversationTurn
+import dev.langchain4j.data.message.SystemMessage
+import dev.langchain4j.data.message.UserMessage
 import dev.langchain4j.model.chat.response.ChatResponse
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel
@@ -13,16 +15,38 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.future.await
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import java.util.concurrent.CompletableFuture
 
+/**
+ * Result of a question generation request.
+ *
+ * @property response Generated questions returned by the model.
+ * @property contextData Context records used to generate the questions.
+ * @property completionTime Total generation time in seconds.
+ * @property llmCalls Number of LLM calls performed.
+ * @property promptTokens Token count of the prompt used.
+ */
 data class QuestionResult(
     val response: List<String>,
-    val contextData: Map<String, List<MutableMap<String, String>>>,
+    val contextData: Map<String, List<Map<String, String>>>,
     val completionTime: Double,
     val llmCalls: Int,
     val promptTokens: Int,
 )
 
+/**
+ * Local question generator that builds context and streams responses from a chat model.
+ *
+ * @property model Streaming chat model used for generation.
+ * @property contextBuilder Builder used to assemble local context.
+ * @property callbacks Optional callbacks to receive context records.
+ * @property encoding Token encoder used for prompt accounting.
+ */
 class LocalQuestionGen(
     private val model: OpenAiStreamingChatModel,
     private val contextBuilder: LocalSearchContextBuilder,
@@ -122,22 +146,41 @@ class LocalQuestionGen(
             formatPrompt(
                 contextData = finalContextData,
                 questionCount = questionCount,
-                questionText = questionText,
             )
 
-        val response = streamingChat(systemPrompt)
+        val response = streamingChat(systemPrompt, questionText)
 
         val completionTime = (System.currentTimeMillis() - startTime) / 1000.0
 
         return QuestionResult(
-            response = response.split("\n").map { it.removePrefix("- ").trim() }.filter { it.isNotBlank() },
+            response = parseQuestions(response),
             contextData =
-                contextRecords +
-                    mapOf("question_context" to mutableListOf(mutableMapOf("text" to questionText, "in_context" to "true"))),
+                contextRecords
+                    .plus(
+                        mapOf(
+                            "question_context" to
+                                mutableListOf(mutableMapOf("text" to questionText, "in_context" to "true")),
+                        ),
+                    ).toImmutableContextRecords(),
             completionTime = completionTime,
             llmCalls = 1,
             promptTokens = encoding.countTokens(systemPrompt),
         )
+    }
+
+    @Suppress("ReturnCount")
+    private fun parseQuestions(raw: String): List<String> {
+        val fallback =
+            raw
+                .split("\n")
+                .map { it.removePrefix("- ").trim() }
+                .filter { it.isNotBlank() }
+        return runCatching {
+            val element = Json.parseToJsonElement(raw)
+            val obj = element as? JsonObject ?: return fallback
+            val questions = obj["questions"] as? JsonArray ?: return fallback
+            questions.mapNotNull { it.jsonPrimitive.contentOrNull?.trim() }.filter { it.isNotBlank() }
+        }.getOrElse { fallback }
     }
 
     /**
@@ -155,8 +198,8 @@ class LocalQuestionGen(
      * @param conversationHistoryMaxTurns Maximum number of previous turns to include when constructing
      * conversation history for context building.
      * @param maxContextTokens Maximum number of tokens allowed for built context.
-     * @param textUnitProp Weight (0.0–1.0) controlling the influence of text-unit relevance when building context.
-     * @param communityProp Weight (0.0–1.0) controlling the influence of community relevance when building context.
+     * @param textUnitProp Weight (0.0-1.0) controlling the influence of text-unit relevance when building context.
+     * @param communityProp Weight (0.0-1.0) controlling the influence of community relevance when building context.
      * @param topKMappedEntities Number of top mapped entities to include in built context.
      * @param topKRelationships Number of top relationships to include in built context.
      * @param topKClaims Number of top claims to include in built context.
@@ -230,19 +273,19 @@ class LocalQuestionGen(
                 mutableListOf(mutableMapOf("text" to questionText, "in_context" to "true"))
             callbacks.forEach { it.onContext(contextRecords) }
 
-            val fullPrompt =
+            val systemPrompt =
                 formatPrompt(
                     contextData = finalContextData,
                     questionCount = questionCount,
-                    questionText = questionText,
                 )
 
-            val responseBuilder = StringBuilder()
             model.chat(
-                fullPrompt,
+                listOf(
+                    SystemMessage(systemPrompt),
+                    UserMessage(questionText),
+                ),
                 object : StreamingChatResponseHandler {
                     override fun onPartialResponse(partialResponse: String) {
-                        responseBuilder.append(partialResponse)
                         callbacks.forEach { it.onLLMNewToken(partialResponse) }
                         trySend(partialResponse)
                     }
@@ -266,13 +309,19 @@ class LocalQuestionGen(
      * @param prompt The full system prompt sent to the model (including injected context and question).
      * @return The complete concatenated response produced by the model.
      */
-    private suspend fun streamingChat(prompt: String): String {
+    private suspend fun streamingChat(
+        systemPrompt: String,
+        userMessage: String,
+    ): String {
         val future = CompletableFuture<String>()
 
         val responseBuilder = StringBuilder()
 
         model.chat(
-            prompt,
+            listOf(
+                SystemMessage(systemPrompt),
+                UserMessage(userMessage),
+            ),
             object : StreamingChatResponseHandler {
                 override fun onPartialResponse(partialResponse: String) {
                     responseBuilder.append(partialResponse)
@@ -293,21 +342,17 @@ class LocalQuestionGen(
     }
 
     /**
-     * Builds the system prompt by replacing template placeholders with the provided context and question count,
-     * then appending the user question.
+     * Builds the system prompt by replacing template placeholders with the provided context and question count.
      *
      * @param contextData Text to substitute for the `{context_data}` placeholder in the system prompt.
      * @param questionCount Number to substitute for the `{question_count}` placeholder in the system prompt.
-     * @param questionText The user's question to append to the end of the prompt.
-     * @return The finalized system prompt string with placeholders replaced and the user question appended.
+     * @return The finalized system prompt string with placeholders replaced.
      */
     private fun formatPrompt(
         contextData: String,
         questionCount: Int,
-        questionText: String,
     ): String =
         QUESTION_SYSTEM_PROMPT
             .replace("{context_data}", contextData)
             .replace("{question_count}", questionCount.toString())
-            .let { prompt -> "$prompt\n\nUser question: $questionText" }
 }

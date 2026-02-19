@@ -1,363 +1,264 @@
 package com.microsoft.graphrag.index
 
-import com.fasterxml.jackson.annotation.JsonCreator
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonProperty
-import com.microsoft.graphrag.logger.ProgressHandler
-import com.microsoft.graphrag.logger.progressTicker
+import com.fasterxml.jackson.databind.ObjectMapper
+import dev.langchain4j.data.message.ChatMessage
+import dev.langchain4j.data.message.UserMessage
 import dev.langchain4j.model.openai.OpenAiChatModel
-import dev.langchain4j.service.AiServices
 import io.github.oshai.kotlinlogging.KotlinLogging
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
-import kotlinx.coroutines.withContext
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
-import java.security.MessageDigest
-import java.util.UUID
 
+/**
+ * Extracts entities and relationships from document chunks using an LLM.
+ *
+ * @property chatModel Chat model used for extraction.
+ * @property prompts Repository that provides prompt templates.
+ * @property objectMapper Mapper used to parse JSON responses.
+ */
 class ExtractGraphWorkflow(
     private val chatModel: OpenAiChatModel,
     private val prompts: PromptRepository = PromptRepository(),
+    private val objectMapper: ObjectMapper = ObjectMapper().findAndRegisterModules(),
 ) {
-    private val extractor =
-        AiServices.create(Extractor::class.java, chatModel)
-    private val json = Json { ignoreUnknownKeys = true }
-
     /**
      * Extracts entities and relationships from the provided document chunks using the configured extraction model.
      *
-     * For each chunk this function builds a prompt, invokes the model, parses the structured response,
-     * normalizes entity ids
-     * (generating UUIDs when absent), assigns each entity and relationship a sourceChunkId equal to the
-     * originating chunk's id,
-     * and resolves relationship endpoints to entity ids when an entity name in the same chunk matches a
-     * relationship endpoint.
-     *
-     * @param chunks The list of DocumentChunk objects to analyze; each chunk's id is recorded on entities and
-     * relationships produced from that chunk.
-     * @return A GraphExtractResult containing all aggregated entities and relationships extracted from the
-     * input chunks.
+     * The prompt requests JSON output with entities and relationships; the response is parsed into
+     * aggregated entities and relationships.
      */
     suspend fun extract(
         chunks: List<DocumentChunk>,
-        cache: PipelineCache? = null,
-        options: ExtractGraphOptions = ExtractGraphOptions(),
-        progress: ProgressHandler? = null,
+        entityTypes: List<String> = DEFAULT_ENTITY_TYPES,
     ): GraphExtractResult {
-        val ticker = progressTicker(progress, chunks.size, "extract graph progress: ")
+        val entities = linkedMapOf<String, EntityAccumulator>()
+        val relationships = linkedMapOf<Pair<String, String>, RelationshipAccumulator>()
 
-        val results =
-            coroutineScope {
-                val semaphore = Semaphore(options.maxConcurrency.coerceAtLeast(1))
-                val tasks =
-                    chunks.map { chunk ->
-                        async {
-                            semaphore.withPermit {
-                                val response = runExtraction(chunk, cache, options)
-                                logger.debug { "LLM structured response for chunk ${chunk.id}: $response" }
-                                val parsed = parseResponse(response)
-                                val entities = parsed.entities.map { it.copy(sourceChunkId = chunk.id) }
-                                val relationships = parsed.relationships.map { it.copy(sourceChunkId = chunk.id) }
-                                ticker(1)
-                                RawGraphExtractResult(entities, relationships)
-                            }
-                        }
-                    }
-                tasks.awaitAll()
-            }
+        val entityTypesValue = entityTypes.joinToString(",")
+        val promptTemplate = prompts.loadExtractGraphPrompt()
 
-        val rawEntities = results.flatMap { it.entities }
-        val rawRelationships = results.flatMap { it.relationships }
-
-        val mergedEntities = mergeEntities(rawEntities)
-        val mergedRelationships = mergeRelationships(rawRelationships, mergedEntities)
-
-        return GraphExtractResult(entities = mergedEntities, relationships = mergedRelationships)
-    }
-
-    private suspend fun runExtraction(
-        chunk: DocumentChunk,
-        cache: PipelineCache?,
-        options: ExtractGraphOptions,
-    ): ModelExtractionResponse? {
-        val prompt = buildPrompt(chunk, options)
-        logger.debug { "ExtractGraph: chunk ${chunk.id} text preview: ${chunk.text.take(200)}" }
-
-        if (options.useCache && cache != null) {
-            val cached = cache.get(cacheKey(options, prompt))
-            if (!cached.isNullOrBlank()) {
-                return runCatching { json.decodeFromString<ModelExtractionResponse>(cached) }.getOrNull()
-            }
-        }
-
-        val response =
-            withContext(Dispatchers.IO) {
-                invokeChat(prompt)
-            }
-
-        if (options.useCache && cache != null && response != null) {
-            cache.set(cacheKey(options, prompt), json.encodeToString(response))
-        }
-
-        return response
-    }
-
-    private fun buildPrompt(
-        chunk: DocumentChunk,
-        options: ExtractGraphOptions,
-    ): String {
-        val template = options.promptOverride ?: prompts.loadExtractGraphPrompt()
-        val entityTypes =
-            options.entityTypes
-                .map { it.trim().uppercase() }
-                .filter { it.isNotBlank() }
-                .ifEmpty { DEFAULT_ENTITY_TYPES }
-                .joinToString(",")
-        return template
-            .replace("{entity_types}", entityTypes)
-            .replace("{input_text}", chunk.text)
-    }
-
-    private fun cacheKey(
-        options: ExtractGraphOptions,
-        prompt: String,
-    ): String = "${options.cacheKeyPrefix}:${sha256Hex(prompt)}"
-
-    private fun parseResponse(response: ModelExtractionResponse?): RawGraphExtractResult {
-        val extraction =
-            response ?: return RawGraphExtractResult(emptyList(), emptyList())
-
-        val entities =
-            extraction.entities.mapNotNull { entity ->
-                val name = entity.name.trim()
-                val type = entity.type.trim()
-                if (name.isEmpty() || type.isEmpty()) return@mapNotNull null
-
-                RawEntity(
-                    name = name,
-                    type = type,
-                    description = entity.description?.takeIf { it.isNotBlank() }?.trim(),
-                    sourceChunkId = "",
+        for (chunk in chunks) {
+            val prompt =
+                promptTemplate
+                    .replace("{entity_types}", entityTypesValue)
+                    .replace("{input_text}", chunk.text)
+            logger.debug { "ExtractGraph: chunk ${chunk.id} text preview: ${chunk.text.take(200)}" }
+            val parsed =
+                parseJson(
+                    extractJson(prompt),
+                    sourceChunkId = chunk.id,
+                    entities = entities,
+                    relationships = relationships,
                 )
-            }
-
-        val relationships =
-            extraction.relationships.mapNotNull { relationship ->
-                val source = relationship.source.trim()
-                val target = relationship.target.trim()
-                if (source.isEmpty() || target.isEmpty()) return@mapNotNull null
-
-                RawRelationship(
-                    sourceName = source,
-                    targetName = target,
-                    type = relationship.type?.takeIf { it.isNotBlank() } ?: "related_to",
-                    description = buildRelationshipDescription(relationship),
-                    sourceChunkId = "",
-                )
-            }
-
-        return RawGraphExtractResult(entities, relationships)
-    }
-
-    private fun mergeEntities(rawEntities: List<RawEntity>): List<Entity> {
-        if (rawEntities.isEmpty()) return emptyList()
-
-        val grouped =
-            rawEntities.groupBy { keyForEntity(it.name, it.type) }
-
-        return grouped.values.map { group ->
-            val sample = group.first()
-            val descriptions = group.mapNotNull { it.description?.takeIf { d -> d.isNotBlank() } }.distinct()
-            val textUnitIds = group.map { it.sourceChunkId }.distinct()
-            val frequency = group.size
-
-            Entity(
-                id = stableEntityId(sample.name, sample.type),
-                name = sample.name,
-                type = sample.type,
-                sourceChunkId = textUnitIds.firstOrNull().orEmpty(),
-                description = descriptions.joinToString(" | ").ifBlank { null },
-                textUnitIds = textUnitIds,
-                attributes =
-                    mapOf(
-                        "frequency" to frequency.toString(),
-                        "descriptions" to descriptions.joinToString(" | "),
-                    ),
-            )
-        }
-    }
-
-    private fun mergeRelationships(
-        rawRelationships: List<RawRelationship>,
-        mergedEntities: List<Entity>,
-    ): List<Relationship> {
-        if (rawRelationships.isEmpty()) return emptyList()
-
-        val nameToId = buildEntityNameIndex(mergedEntities)
-        val grouped =
-            rawRelationships.groupBy { keyForRelationship(it.sourceName, it.targetName) }
-
-        return grouped.values.map { group ->
-            val sample = group.first()
-            val descriptions = group.mapNotNull { it.description?.takeIf { d -> d.isNotBlank() } }.distinct()
-            val textUnitIds = group.map { it.sourceChunkId }.distinct()
-            val weight = group.size.toDouble()
-
-            val sourceId = nameToId[sample.sourceName.lowercase()] ?: sample.sourceName
-            val targetId = nameToId[sample.targetName.lowercase()] ?: sample.targetName
-
-            Relationship(
-                sourceId = sourceId,
-                targetId = targetId,
-                type = sample.type.ifBlank { "related_to" },
-                description = descriptions.joinToString(" | ").ifBlank { null },
-                sourceChunkId = textUnitIds.firstOrNull().orEmpty(),
-                weight = weight,
-                textUnitIds = textUnitIds,
-            )
-        }
-    }
-
-    private fun buildEntityNameIndex(entities: List<Entity>): Map<String, String> {
-        val grouped = entities.groupBy { it.name.lowercase() }
-        return grouped
-            .mapNotNull { (name, list) ->
-                if (list.size == 1) name to list.first().id else null
-            }.toMap()
-    }
-
-    private fun keyForEntity(
-        name: String,
-        type: String,
-    ): String = "${type.trim().lowercase()}|${name.trim().lowercase()}"
-
-    private fun keyForRelationship(
-        source: String,
-        target: String,
-    ): String = "${source.trim().lowercase()}|${target.trim().lowercase()}"
-
-    private fun stableEntityId(
-        name: String,
-        type: String,
-    ): String = UUID.nameUUIDFromBytes("${type.trim().lowercase()}|${name.trim().lowercase()}".toByteArray()).toString()
-
-    private fun sha256Hex(value: String): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        val bytes = digest.digest(value.toByteArray())
-        val sb = StringBuilder(bytes.size * 2)
-        for (b in bytes) {
-            sb.append(String.format("%02x", b))
-        }
-        return sb.toString()
-    }
-
-    private fun buildRelationshipDescription(relationship: ModelRelationship): String? {
-        val parts = mutableListOf<String>()
-        relationship.strength?.let { parts += "strength=$it" }
-        relationship.description?.takeIf { it.isNotBlank() }?.let { parts += it.trim() }
-        return parts.joinToString("; ").ifBlank { null }
-    }
-
-    /**
-     * Sends the given prompt to the extractor and returns the extraction result.
-     *
-     * @param prompt The user message / prompt sent to the extractor.
-     * @return `ModelExtractionResponse` returned by the extractor, or `null` if the extraction failed.
-     */
-    private fun invokeChat(prompt: String): ModelExtractionResponse? =
-        runCatching { extractor.extract(prompt) }.getOrElse {
-            logger.warn(it) {
-                "Failed to parse extraction response; prompt preview: ${prompt.take(200)}"
-            }
-            null
+            logger.debug { "ExtractGraph parsed for chunk ${chunk.id}: entities=${parsed.first}, relationships=${parsed.second}" }
         }
 
-    private interface Extractor {
-        /**
-         * Extracts entities and relationships from the given user message according to the extraction instructions.
-         *
-         * @param userMessage The user-facing prompt or document text containing extraction instructions and
-         * content to analyze.
-         * @return A `ModelExtractionResponse` containing the extracted entities and relationships; lists may be
-         * empty if none are found.
-         */
-        @dev.langchain4j.service.SystemMessage(
-            "You are an information extraction assistant. Extract entities and relationships exactly as instructed in the user message.",
+        return GraphExtractResult(
+            entities = entities.values.map { it.toEntity() },
+            relationships = relationships.values.map { it.toRelationship() },
         )
-        fun extract(
-            @dev.langchain4j.service.UserMessage userMessage: String,
-        ): ModelExtractionResponse
+    }
+
+    private fun extractJson(prompt: String): String {
+        val messages =
+            listOf<ChatMessage>(
+                UserMessage(prompt),
+            )
+        return chat(messages)
+    }
+
+    private fun chat(messages: List<ChatMessage>): String =
+        runCatching { chatModel.chat(messages).aiMessage().text() }
+            .getOrElse {
+                logger.warn { "Graph extraction chat failed: ${it.message}" }
+                ""
+            }
+
+    @Suppress("ReturnCount")
+    private fun parseJson(
+        raw: String,
+        sourceChunkId: String,
+        entities: MutableMap<String, EntityAccumulator>,
+        relationships: MutableMap<Pair<String, String>, RelationshipAccumulator>,
+    ): Pair<Int, Int> {
+        if (raw.isBlank()) return 0 to 0
+        val json = extractJsonObject(raw) ?: return 0 to 0
+        val parsed =
+            runCatching { objectMapper.readValue(json, GraphExtractionResponse::class.java) }
+                .getOrElse {
+                    logger.warn { "Graph extraction JSON decode failed: ${it.message}" }
+                    return 0 to 0
+                }
+        var entityCount = 0
+        var relationshipCount = 0
+        parsed.entities.forEach { entity ->
+            val name = cleanString(entity.name).uppercase()
+            val type = cleanString(entity.type).uppercase()
+            val description = cleanString(entity.description ?: "")
+            if (name.isBlank()) return@forEach
+            val acc = entities.getOrPut(name) { EntityAccumulator(name = name) }
+            acc.type = if (type.isNotBlank()) type else acc.type
+            acc.addDescription(description)
+            acc.addSourceChunkId(sourceChunkId)
+            entityCount++
+        }
+
+        parsed.relationships.forEach { rel ->
+            val source = cleanString(rel.source).uppercase()
+            val target = cleanString(rel.target).uppercase()
+            val type = cleanString(rel.type ?: "related_to").uppercase()
+            val description = cleanString(rel.description ?: "")
+            val weight = rel.strength ?: 1.0
+            if (source.isBlank() || target.isBlank()) return@forEach
+            val key = source to target
+            val acc = relationships.getOrPut(key) { RelationshipAccumulator(source = source, target = target) }
+            acc.addType(type)
+            acc.addDescription(description)
+            acc.addSourceChunkId(sourceChunkId)
+            acc.weight += weight
+            relationshipCount++
+        }
+
+        return entityCount to relationshipCount
+    }
+
+    private fun cleanString(value: String): String = value.trim().replace(CONTROL_CHAR_REGEX, "")
+
+    private fun extractJsonObject(text: String): String? {
+        val fenced = extractFromCodeFence(text)
+        if (fenced != null) return fenced
+        return extractBalancedJson(text)
+    }
+
+    private fun extractFromCodeFence(text: String): String? {
+        val fenceRegex = Regex("```(?:json)?\\s*([\\s\\S]*?)\\s*```", RegexOption.IGNORE_CASE)
+        val match =
+            fenceRegex
+                .findAll(text)
+                .firstOrNull { it.groupValues[1].contains('{') }
+                ?: return null
+        return extractBalancedJson(match.groupValues[1])
+    }
+
+    @Suppress("NestedBlockDepth", "ReturnCount")
+    private fun extractBalancedJson(text: String): String? {
+        val start = text.indexOf('{')
+        if (start == -1) return null
+        var depth = 0
+        var inString = false
+        var escape = false
+        for (i in start until text.length) {
+            val c = text[i]
+            if (inString) {
+                if (escape) {
+                    escape = false
+                } else {
+                    when (c) {
+                        '\\' -> escape = true
+                        '"' -> inString = false
+                    }
+                }
+                continue
+            }
+            when (c) {
+                '"' -> {
+                    inString = true
+                }
+
+                '{' -> {
+                    depth++
+                }
+
+                '}' -> {
+                    depth--
+                    if (depth == 0) return text.substring(start, i + 1)
+                }
+            }
+        }
+        return null
+    }
+
+    private data class EntityAccumulator(
+        val name: String,
+        var type: String = "",
+    ) {
+        private val descriptions = linkedSetOf<String>()
+        private val sourceChunkIds = linkedSetOf<String>()
+
+        fun addDescription(description: String) {
+            if (description.isNotBlank()) descriptions += description
+        }
+
+        fun addSourceChunkId(chunkId: String) {
+            if (chunkId.isNotBlank()) sourceChunkIds += chunkId
+        }
+
+        fun toEntity(): Entity =
+            Entity(
+                id = name,
+                name = name,
+                type = type,
+                description = descriptions.joinToString("\n").ifBlank { null },
+                sourceChunkId = sourceChunkIds.joinToString(", "),
+            )
+    }
+
+    private data class RelationshipAccumulator(
+        val source: String,
+        val target: String,
+    ) {
+        var type: String = "related_to"
+        var weight: Double = 0.0
+        private val descriptions = linkedSetOf<String>()
+        private val sourceChunkIds = linkedSetOf<String>()
+
+        fun addType(value: String) {
+            if (value.isNotBlank()) type = value
+        }
+
+        fun addDescription(description: String) {
+            if (description.isNotBlank()) descriptions += description
+        }
+
+        fun addSourceChunkId(chunkId: String) {
+            if (chunkId.isNotBlank()) sourceChunkIds += chunkId
+        }
+
+        fun toRelationship(): Relationship =
+            Relationship(
+                sourceId = source,
+                targetId = target,
+                type = type,
+                description = descriptions.joinToString("\n").ifBlank { null },
+                sourceChunkId = sourceChunkIds.joinToString(", "),
+                weight = weight,
+            )
     }
 
     companion object {
         private val logger = KotlinLogging.logger {}
-        val DEFAULT_ENTITY_TYPES = listOf("ORGANIZATION", "PERSON", "GPE", "LOCATION")
+        private val CONTROL_CHAR_REGEX = Regex("[\\x00-\\x1f\\x7f-\\x9f]")
+        private val DEFAULT_ENTITY_TYPES = listOf("organization", "person", "geo", "event")
     }
 }
 
-data class ExtractGraphOptions(
-    val entityTypes: List<String> = ExtractGraphWorkflow.DEFAULT_ENTITY_TYPES,
-    val maxConcurrency: Int = 4,
-    val useCache: Boolean = true,
-    val cacheKeyPrefix: String = "extract_graph",
-    val promptOverride: String? = null,
-)
-
-private data class RawGraphExtractResult(
-    val entities: List<RawEntity>,
-    val relationships: List<RawRelationship>,
-)
-
-private data class RawEntity(
-    val name: String,
-    val type: String,
-    val description: String?,
-    val sourceChunkId: String,
-)
-
-private data class RawRelationship(
-    val sourceName: String,
-    val targetName: String,
-    val type: String,
-    val description: String?,
-    val sourceChunkId: String,
-)
-
-@Serializable
 @JsonIgnoreProperties(ignoreUnknown = true)
-data class ModelExtractionResponse
-    @JsonCreator
-    constructor(
-        @param:JsonProperty("entities") val entities: List<ModelEntity> = emptyList(),
-        @param:JsonProperty("relationships") val relationships: List<ModelRelationship> = emptyList(),
-    )
+private data class GraphExtractionResponse(
+    @param:JsonProperty("entities") val entities: List<GraphEntity> = emptyList(),
+    @param:JsonProperty("relationships") val relationships: List<GraphRelationship> = emptyList(),
+)
 
-@Serializable
 @JsonIgnoreProperties(ignoreUnknown = true)
-data class ModelEntity
-    @JsonCreator
-    constructor(
-        @param:JsonProperty("id") val id: String? = null,
-        @param:JsonProperty("name") val name: String,
-        @param:JsonProperty("type") val type: String,
-        @param:JsonProperty("description") val description: String? = null,
-    )
+private data class GraphEntity(
+    @param:JsonProperty("name") val name: String,
+    @param:JsonProperty("type") val type: String,
+    @param:JsonProperty("description") val description: String? = null,
+)
 
-@Serializable
 @JsonIgnoreProperties(ignoreUnknown = true)
-data class ModelRelationship
-    @JsonCreator
-    constructor(
-        @param:JsonProperty("source") val source: String,
-        @param:JsonProperty("target") val target: String,
-        @param:JsonProperty("type") val type: String? = null,
-        @param:JsonProperty("description") val description: String? = null,
-        @param:JsonProperty("strength") val strength: Double? = null,
-    )
+private data class GraphRelationship(
+    @param:JsonProperty("source") val source: String,
+    @param:JsonProperty("target") val target: String,
+    @param:JsonProperty("description") val description: String? = null,
+    @param:JsonProperty("strength") val strength: Double? = null,
+    @param:JsonProperty("type") val type: String? = null,
+)

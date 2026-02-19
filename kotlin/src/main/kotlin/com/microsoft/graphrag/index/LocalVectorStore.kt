@@ -10,6 +10,12 @@ import smile.neighbor.LinearSearch
 import java.nio.file.Files
 import java.nio.file.Path
 
+/**
+ * File-backed vector store for text and entity embeddings.
+ *
+ * @property path Path to the JSON payload file.
+ * @property payloadOverride Optional in-memory payload override.
+ */
 class LocalVectorStore(
     private val path: Path,
     private val payloadOverride: Payload? = null,
@@ -39,6 +45,7 @@ class LocalVectorStore(
      * @return `Payload` loaded from disk, the configured override if provided, or `null` if the file does not
      * exist or cannot be deserialized.
      */
+    @Suppress("ReturnCount")
     fun load(): Payload? {
         payloadOverride?.let { return it }
         if (!Files.exists(path)) return null
@@ -119,6 +126,12 @@ class LocalVectorStore(
     }
 }
 
+/**
+ * Payload persisted by the local vector store.
+ *
+ * @property textEmbeddings Text chunk embeddings.
+ * @property entityEmbeddings Entity embeddings.
+ */
 @Serializable
 data class Payload(
     val textEmbeddings: List<TextEmbedding>,

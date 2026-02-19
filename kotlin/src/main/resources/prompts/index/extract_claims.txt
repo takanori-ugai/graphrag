@@ -44,7 +44,7 @@ Output:
     "status": "TRUE",
     "startDate": "2022-01-10T00:00:00",
     "endDate": "2022-01-10T00:00:00",
-    "description": "Company A was fined for bid rigging in multiple public tenders published by Government Agency B on 2022/01/10.",
+    "description": "Company A was found to engage in anti-competitive practices because it was fined for bid rigging in multiple public tenders published by Government Agency B according to an article published on 2022/01/10.",
     "sourceText": "According to an article published on 2022/01/10, Company A was fined for bid rigging while participating in multiple public tenders published by Government Agency B."
   }
 ]
@@ -62,7 +62,7 @@ Output:
     "status": "TRUE",
     "startDate": "2022-01-10T00:00:00",
     "endDate": "2022-01-10T00:00:00",
-    "description": "Company A was fined for bid rigging in multiple public tenders published by Government Agency B on 2022/01/10.",
+    "description": "Company A was found to engage in anti-competitive practices because it was fined for bid rigging in multiple public tenders published by Government Agency B according to an article published on 2022/01/10.",
     "sourceText": "According to an article published on 2022/01/10, Company A was fined for bid rigging while participating in multiple public tenders published by Government Agency B."
   },
   {
@@ -71,8 +71,8 @@ Output:
     "claimType": "CORRUPTION",
     "status": "SUSPECTED",
     "startDate": "2015-01-01T00:00:00",
-    "endDate": "2015-12-30T00:00:00",
-    "description": "Person C was suspected of engaging in corruption activities in 2015.",
+    "endDate": "2015-12-31T00:00:00",
+    "description": "Person C was suspected of engaging in corruption activities in 2015",
     "sourceText": "The company is owned by Person C who was suspected of engaging in corruption activities in 2015."
   }
 ]

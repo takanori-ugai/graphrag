@@ -1,7 +1,11 @@
 package com.microsoft.graphrag.prompts.query
 
+/**
+ * System prompt template used to generate follow-up questions from context tables.
+ */
 val QUESTION_SYSTEM_PROMPT =
-    """
+    "\n" +
+        """
 ---Role---
 
 You are a helpful assistant generating a bulleted list of {question_count} questions about data in the tables provided.
@@ -23,4 +27,13 @@ The candidate questions should be answerable using the data tables provided, but
 If the user's questions reference several named entities, then each candidate question should reference all named entities.
 
 ---Example questions---
-    """.trimIndent()
+
+---Response format---
+
+Return a single JSON object with the following shape:
+{
+  "questions": ["<question 1>", "<question 2>"]
+}
+
+Use the "questions" array for the generated questions. Do not include bullet points or additional text.
+        """.trimIndent()

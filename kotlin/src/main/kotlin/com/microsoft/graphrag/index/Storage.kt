@@ -6,19 +6,51 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.stream.Collectors
 
+/**
+ * Abstraction for pipeline artifact storage.
+ */
 interface PipelineStorage {
+    /**
+     * Reads a stored value by name.
+     *
+     * @param name Relative name or key of the stored value.
+     * @return The stored content, or null if missing.
+     */
     suspend fun get(name: String): String?
 
+    /**
+     * Writes content to the given name.
+     *
+     * @param name Relative name or key to write.
+     * @param content Content to store.
+     */
     suspend fun set(
         name: String,
         content: String,
     )
 
+    /**
+     * Returns a storage instance rooted at a child path.
+     *
+     * @param name Child directory name.
+     * @return Storage rooted at the child path.
+     */
     fun child(name: String): PipelineStorage
 
+    /**
+     * Finds files whose relative paths match the provided regex.
+     *
+     * @param regex Pattern to match relative paths against.
+     * @return Sequence of relative path and absolute path pairs.
+     */
     fun find(regex: Regex): Sequence<Pair<String, Path>>
 }
 
+/**
+ * Filesystem-backed implementation of PipelineStorage.
+ *
+ * @property root Root directory for stored artifacts.
+ */
 class FilePipelineStorage(
     private val root: Path,
 ) : PipelineStorage {

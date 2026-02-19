@@ -4,6 +4,13 @@ import dev.langchain4j.model.openai.OpenAiChatModel
 import dev.langchain4j.service.AiServices
 import io.github.oshai.kotlinlogging.KotlinLogging
 
+/**
+ * Generates community summary reports using an LLM.
+ *
+ * @property chatModel Chat model used for report generation.
+ * @property prompts Repository that provides prompt templates.
+ */
+@Suppress("TooManyFunctions")
 class CommunityReportWorkflow(
     private val chatModel: OpenAiChatModel,
     private val prompts: PromptRepository = PromptRepository(),
@@ -11,6 +18,19 @@ class CommunityReportWorkflow(
     private val logger = KotlinLogging.logger {}
     private val reporter = AiServices.create(Reporter::class.java, chatModel)
 
+    /**
+     * Generates reports for each detected community.
+     *
+     * @param assignments Entity-to-community assignments.
+     * @param entities Entities to include in reports.
+     * @param relationships Relationships to include in reports.
+     * @param textUnits Text units to include in reports.
+     * @param claims Claims to include in reports.
+     * @param hierarchy Optional map of community ids to parent ids.
+     * @param priorReports Optional prior reports used as sub-reports.
+     * @return List of generated community reports.
+     */
+    @Suppress("LongParameterList")
     fun generateReports(
         assignments: List<CommunityAssignment>,
         entities: List<Entity>,
@@ -55,6 +75,7 @@ class CommunityReportWorkflow(
         }
     }
 
+    @Suppress("LongParameterList", "ReturnCount")
     private fun summarizeCommunity(
         communityId: Int,
         entities: List<Entity>,
@@ -106,7 +127,7 @@ class CommunityReportWorkflow(
             relationships.forEachIndexed { idx, r ->
                 appendLine(
                     "${idx + 1},${escapeCsv(r.sourceId)},${escapeCsv(r.targetId)}," +
-                        escapeCsv(r.description ?: r.type ?: ""),
+                        escapeCsv(r.description ?: r.type),
                 )
             }
         }
@@ -175,6 +196,7 @@ class CommunityReportWorkflow(
         }
     }
 
+    @Suppress("LongParameterList")
     private fun reduceStage(
         communityId: Int,
         mapSummaries: List<String>,

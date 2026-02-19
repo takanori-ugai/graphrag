@@ -1,15 +1,14 @@
 # Copyright (c) 2024 Microsoft Corporation.
 # Licensed under the MIT License
 
-from graphrag.config.create_graphrag_config import create_graphrag_config
 from graphrag.data_model.schemas import TEXT_UNITS_FINAL_COLUMNS
 from graphrag.index.workflows.create_final_text_units import (
     run_workflow,
 )
-from graphrag.utils.storage import load_table_from_storage
+
+from tests.unit.config.utils import get_default_graphrag_config
 
 from .util import (
-    DEFAULT_MODEL_CONFIG,
     compare_outputs,
     create_test_context,
     load_test_table,
@@ -28,12 +27,12 @@ async def test_create_final_text_units():
         ],
     )
 
-    config = create_graphrag_config({"models": DEFAULT_MODEL_CONFIG})
+    config = get_default_graphrag_config()
     config.extract_claims.enabled = True
 
     await run_workflow(config, context)
 
-    actual = await load_table_from_storage("text_units", context.output_storage)
+    actual = await context.output_table_provider.read_dataframe("text_units")
 
     for column in TEXT_UNITS_FINAL_COLUMNS:
         assert column in actual.columns
