@@ -24,6 +24,17 @@ output:
   type: file
   base_dir: output
 
+extract_graph:
+  prompt: prompts/index/extract_graph.txt
+  entity_types:
+    - ORGANIZATION
+    - PERSON
+    - GPE
+    - LOCATION
+  max_concurrency: 4
+  use_cache: true
+  cache_key_prefix: extract_graph
+
 # outputs: {}
 # Optional multi-output configuration. Uncomment and set when writing to more than one target.
 
