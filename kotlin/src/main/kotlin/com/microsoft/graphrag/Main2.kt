@@ -118,7 +118,7 @@ fun main(args: Array<String>) =
                 buildList {
                     add(sample.answer)
                     addAll(sample.answerAliases)
-            }.distinct()
+                }.distinct()
             goldAnswers.add(gold)
             println("Answer: $answer")
             println("Gold: $gold")

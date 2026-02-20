@@ -1,6 +1,5 @@
 package com.microsoft.graphrag.evaluation
 
-
 /**
  * Token-level F1 evaluator for QA predictions.
  */
