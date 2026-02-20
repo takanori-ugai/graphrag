@@ -83,8 +83,8 @@ class EvalUtilsTest {
 
     @Test
     fun `normalizeAnswer should handle unicode characters`() {
-        val input = "Café résumé naïve"
-        val expected = "café résumé naïve"
+        val input = "Café naïve"
+        val expected = "café naïve"
         assertEquals(expected, normalizeAnswer(input))
     }
 

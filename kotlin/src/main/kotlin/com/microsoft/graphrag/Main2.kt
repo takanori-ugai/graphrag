@@ -50,6 +50,9 @@ fun main(args: Array<String>) =
         val goldAnswers = mutableListOf<List<String>>()
 
         samples.forEachIndexed { index, sample ->
+            require(isSafeSampleId(sample.id)) {
+                "Sample id contains disallowed path characters: ${sample.id}"
+            }
             val docs =
                 sample.paragraphs
                     .map { paragraph ->
@@ -110,8 +113,14 @@ fun main(args: Array<String>) =
                     responseType = "Answer with one or a few words only (no sentences).",
                 )
 
-            val normalized = normalizeModelResponse(result.answer)
-            val answer = JsonAnswerParser.parse(normalized).response.trim()
+            val answer =
+                try {
+                    val normalized = normalizeModelResponse(result.answer)
+                    JsonAnswerParser.parse(normalized).response.trim()
+                } catch (e: Exception) {
+                    System.err.println("Warning: Failed to parse response for sample ${sample.id}: ${e.message}")
+                    ""
+                }
             predictions.add(answer)
 
             val gold =
@@ -186,6 +195,14 @@ private fun normalizeModelResponse(raw: String): String {
     val start = trimmed.indexOf('{')
     val end = trimmed.lastIndexOf('}')
     return if (start >= 0 && end > start) trimmed.substring(start, end + 1).trim() else trimmed
+}
+
+private fun isSafeSampleId(sampleId: String): Boolean {
+    if (sampleId.isBlank()) return false
+    if (sampleId.contains("..")) return false
+    if (sampleId.contains('/')) return false
+    if (sampleId.contains('\\')) return false
+    return true
 }
 
 @Serializable

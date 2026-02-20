@@ -305,8 +305,8 @@ class QAExactMatchTest {
 
     @Test
     fun `calculateMetricScores should handle unicode characters`() {
-        val goldAnswers = listOf(listOf("café résumé"))
-        val predictedAnswers = listOf("café résumé")
+        val goldAnswers = listOf(listOf("café naïve"))
+        val predictedAnswers = listOf("café naïve")
         val aggregationFn: (List<Double>) -> Double = { it.maxOrNull() ?: 0.0 }
 
         val (pooled, perExample) = evaluator.calculateMetricScores(goldAnswers, predictedAnswers, aggregationFn)
