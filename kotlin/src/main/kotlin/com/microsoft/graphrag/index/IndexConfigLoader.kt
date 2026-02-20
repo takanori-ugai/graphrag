@@ -123,7 +123,7 @@ object IndexConfigLoader {
  * @property input Optional `input` configuration section.
  * @property output Optional `output` configuration section.
  */
-internal data class RawIndexConfig(
+data class RawIndexConfig(
     @param:JsonProperty("root_dir") val rootDir: String? = null,
     @param:JsonProperty("input") val input: RawInput? = null,
     @param:JsonProperty("output") val output: RawOutput? = null,
@@ -135,7 +135,7 @@ internal data class RawIndexConfig(
  * @property baseDir Optional `base_dir` override for input resolution.
  * @property storage Optional nested `storage` section.
  */
-internal data class RawInput(
+data class RawInput(
     @param:JsonProperty("base_dir") val baseDir: String? = null,
     @param:JsonProperty("storage") val storage: RawStorage? = null,
 )
@@ -145,7 +145,7 @@ internal data class RawInput(
  *
  * @property baseDir Optional `base_dir` override for output resolution.
  */
-internal data class RawOutput(
+data class RawOutput(
     @param:JsonProperty("base_dir") val baseDir: String? = null,
 )
 
@@ -154,6 +154,6 @@ internal data class RawOutput(
  *
  * @property baseDir Optional `base_dir` override for storage input resolution.
  */
-internal data class RawStorage(
+data class RawStorage(
     @param:JsonProperty("base_dir") val baseDir: String? = null,
 )
