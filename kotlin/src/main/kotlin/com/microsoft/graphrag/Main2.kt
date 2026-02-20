@@ -124,10 +124,10 @@ fun main(args: Array<String>) =
                 )
 
             val answer =
-                try {
+                runCatching {
                     val normalized = normalizeModelResponse(result.answer)
                     JsonAnswerParser.parse(normalized).response.trim()
-                } catch (e: Exception) {
+                }.getOrElse { e ->
                     System.err.println("Warning: Failed to parse response for sample ${sample.id}: ${e.message}")
                     ""
                 }
