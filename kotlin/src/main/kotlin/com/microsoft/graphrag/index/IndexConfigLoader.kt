@@ -44,7 +44,8 @@ object IndexConfigLoader {
         overrideOutputDir: Path? = null,
     ): IndexConfig {
         val resolvedRoot = root.toAbsolutePath().normalize()
-        val settingsPath = (configPath ?: resolvedRoot.resolve("settings.yaml")).toAbsolutePath().normalize()
+        val settingsPath =
+            (configPath ?: resolvedRoot.resolve("settings.yaml")).toAbsolutePath().normalize()
 
         val raw =
             if (Files.exists(settingsPath)) {
@@ -114,7 +115,7 @@ object IndexConfigLoader {
  * @property input Optional `input` configuration section.
  * @property output Optional `output` configuration section.
  */
-data class RawIndexConfig(
+internal data class RawIndexConfig(
     @param:JsonProperty("root_dir") val rootDir: String? = null,
     @param:JsonProperty("input") val input: RawInput? = null,
     @param:JsonProperty("output") val output: RawOutput? = null,
@@ -126,7 +127,7 @@ data class RawIndexConfig(
  * @property baseDir Optional `base_dir` override for input resolution.
  * @property storage Optional nested `storage` section.
  */
-data class RawInput(
+internal data class RawInput(
     @param:JsonProperty("base_dir") val baseDir: String? = null,
     @param:JsonProperty("storage") val storage: RawStorage? = null,
 )
@@ -136,7 +137,7 @@ data class RawInput(
  *
  * @property baseDir Optional `base_dir` override for output resolution.
  */
-data class RawOutput(
+internal data class RawOutput(
     @param:JsonProperty("base_dir") val baseDir: String? = null,
 )
 
@@ -145,6 +146,6 @@ data class RawOutput(
  *
  * @property baseDir Optional `base_dir` override for storage input resolution.
  */
-data class RawStorage(
+internal data class RawStorage(
     @param:JsonProperty("base_dir") val baseDir: String? = null,
 )

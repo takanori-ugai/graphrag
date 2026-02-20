@@ -7,7 +7,12 @@ class QAExactMatch {
     /**
      * Calculates exact match metrics for the provided answers.
      *
+     * @param goldAnswers List of gold answer sets, one per question (each question may have multiple valid answers)
+     * @param predictedAnswers List of predicted answers, one per question
+     * @param aggregationFn Function to aggregate multiple exact match scores when multiple gold answers exist
+     * @return Pair of (1) pooled metrics across all examples and (2) per-example metric maps
      * Questions with empty gold answer lists receive per-example ExactMatch=0.0 but are excluded from the pooled average.
+     * @throws IllegalArgumentException if goldAnswers and predictedAnswers have different sizes
      */
     fun calculateMetricScores(
         goldAnswers: List<List<String>>,

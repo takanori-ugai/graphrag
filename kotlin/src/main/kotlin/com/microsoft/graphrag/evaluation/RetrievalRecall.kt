@@ -11,6 +11,14 @@ class RetrievalRecall {
 
     /**
      * Calculates recall@k metrics for each example and pooled averages.
+     *
+     * @param goldDocs List of gold document ids, one per example
+     * @param retrievedDocs List of retrieved document ids, one per example
+     * @param kList List of k values for recall@k computation
+     * @return Pair of (1) pooled metrics across all examples and (2) per-example metric maps
+     * If kList is empty, returns empty pooled and per-example results.
+     * Examples with empty gold doc lists receive per-example recall=0.0 and are included in the pooled average.
+     * @throws IllegalArgumentException if goldDocs and retrievedDocs have different sizes
      */
     fun calculateMetricScores(
         goldDocs: List<List<String>>,
