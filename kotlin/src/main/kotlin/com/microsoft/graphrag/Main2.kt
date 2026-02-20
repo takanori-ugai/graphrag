@@ -20,22 +20,19 @@ import java.nio.file.Path
 import kotlin.system.exitProcess
 
 /**
- * CLI entry point for running and evaluating QA over MuSiQue JSONL samples.
+ * CLI entry point that runs a MuSiQue QA evaluation pipeline: loads samples from a JSONL input,
+ * builds an OpenAI streaming chat model and embedding model, answers each question using an
+ * in-memory vector store per sample, collects predictions and gold answers, and prints ExactMatch
+ * and F1 aggregated scores.
+ *
+ * The program requires the OPENAI_API_KEY environment variable to be set and exits with an error
+ * if it is missing. It will skip samples with no non-blank passages and will print progress
+ * periodically.
+ *
+ * @param args Command-line arguments as passed to the JVM (expects at least `--input <path>` and
+ * optional flags such as `--limit`, `--llmName`, `--embeddingName`, and `--topK`).
  */
-/**
-     * CLI entry point that runs a MuSiQue QA evaluation pipeline: loads samples from a JSONL input,
-     * builds an OpenAI streaming chat model and embedding model, answers each question using an
-     * in-memory vector store per sample, collects predictions and gold answers, and prints ExactMatch
-     * and F1 aggregated scores.
-     *
-     * The program requires the OPENAI_API_KEY environment variable to be set and exits with an error
-     * if it is missing. It will skip samples with no non-blank passages and will print progress
-     * periodically.
-     *
-     * @param args Command-line arguments as passed to the JVM (expects at least `--input <path>` and
-     * optional flags such as `--limit`, `--llmName`, `--embeddingName`, and `--topK`).
-     */
-    fun main(args: Array<String>) =
+fun main(args: Array<String>) =
     runBlocking {
         val parsed = MusiqueArgs.parse(args)
         val apiKey = System.getenv("OPENAI_API_KEY")
@@ -310,7 +307,14 @@ private data class MusiqueArgs(
                 map["limit"]?.let { raw ->
                     raw.toIntOrNull() ?: usageAndExit("--limit must be an integer, got: $raw")
                 }
-            val topK = map["top_k"]?.toIntOrNull() ?: 10
+            val topK =
+                map["top_k"]?.let { raw ->
+                    val value = raw.toIntOrNull() ?: usageAndExit("--top_k must be an integer, got: $raw")
+                    if (value <= 0) {
+                        usageAndExit("--top_k must be positive, got: $value")
+                    }
+                    value
+                } ?: 10
 
             return MusiqueArgs(
                 inputPath = input,
