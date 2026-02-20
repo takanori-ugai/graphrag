@@ -123,16 +123,18 @@ class QAF1ScoreTest {
 
     @Test
     fun `calculateMetricScores should handle multiple examples`() {
-        val goldAnswers = listOf(
-            listOf("hello world"),
-            listOf("goodbye world"),
-            listOf("hello friend"),
-        )
-        val predictedAnswers = listOf(
-            "hello world",
-            "goodbye world",
-            "hello friend",
-        )
+        val goldAnswers =
+            listOf(
+                listOf("hello world"),
+                listOf("goodbye world"),
+                listOf("hello friend"),
+            )
+        val predictedAnswers =
+            listOf(
+                "hello world",
+                "goodbye world",
+                "hello friend",
+            )
         val aggregationFn: (List<Double>) -> Double = { it.maxOrNull() ?: 0.0 }
 
         val (pooled, perExample) = evaluator.calculateMetricScores(goldAnswers, predictedAnswers, aggregationFn)
@@ -146,14 +148,16 @@ class QAF1ScoreTest {
 
     @Test
     fun `calculateMetricScores should compute average F1 across multiple examples`() {
-        val goldAnswers = listOf(
-            listOf("perfect match"),
-            listOf("no match at all"),
-        )
-        val predictedAnswers = listOf(
-            "perfect match",
-            "completely different",
-        )
+        val goldAnswers =
+            listOf(
+                listOf("perfect match"),
+                listOf("no match at all"),
+            )
+        val predictedAnswers =
+            listOf(
+                "perfect match",
+                "completely different",
+            )
         val aggregationFn: (List<Double>) -> Double = { it.maxOrNull() ?: 0.0 }
 
         val (pooled, perExample) = evaluator.calculateMetricScores(goldAnswers, predictedAnswers, aggregationFn)
@@ -251,14 +255,16 @@ class QAF1ScoreTest {
 
     @Test
     fun `calculateMetricScores should exclude empty gold lists from pooled average`() {
-        val goldAnswers = listOf(
-            emptyList(),
-            listOf("hello world"),
-        )
-        val predictedAnswers = listOf(
-            "anything",
-            "hello world",
-        )
+        val goldAnswers =
+            listOf(
+                emptyList(),
+                listOf("hello world"),
+            )
+        val predictedAnswers =
+            listOf(
+                "anything",
+                "hello world",
+            )
         val aggregationFn: (List<Double>) -> Double = { it.maxOrNull() ?: 0.0 }
 
         val (pooled, perExample) = evaluator.calculateMetricScores(goldAnswers, predictedAnswers, aggregationFn)

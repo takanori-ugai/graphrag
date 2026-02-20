@@ -1,6 +1,6 @@
 package com.microsoft.graphrag.evaluation
 
-private const val PUNCTUATION_CHARS = "!\"#$%&'()*+,-./:;<>?@[\\]^_`{|}~"
+private const val PUNCTUATION_CHARS = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
 private val ARTICLES_REGEX = Regex("\\b(a|an|the)\\b")
 private val WHITESPACE_REGEX = Regex("\\s+")
 
@@ -10,12 +10,7 @@ private val WHITESPACE_REGEX = Regex("\\s+")
 fun normalizeAnswer(answer: String): String {
     fun removeArticles(text: String): String = ARTICLES_REGEX.replace(text, " ")
 
-    fun whiteSpaceFix(text: String): String =
-        text
-            .trim()
-            .split(WHITESPACE_REGEX)
-            .filter { it.isNotEmpty() }
-            .joinToString(" ")
+    fun whiteSpaceFix(text: String): String = WHITESPACE_REGEX.replace(text.trim(), " ")
 
     fun removePunc(text: String): String = text.filter { ch -> ch !in PUNCTUATION_CHARS }
 

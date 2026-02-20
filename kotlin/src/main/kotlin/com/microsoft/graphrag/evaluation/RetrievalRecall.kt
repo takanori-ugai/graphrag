@@ -17,12 +17,18 @@ class RetrievalRecall {
         retrievedDocs: List<List<String>>,
         kList: List<Int>,
     ): Pair<Map<String, Double>, List<Map<String, Double>>> {
+        require(goldDocs.size == retrievedDocs.size) {
+            "Length of gold docs and retrieved docs must be the same."
+        }
         val uniqueKList = kList.distinct().sorted()
+        if (uniqueKList.isEmpty()) {
+            return emptyMap<String, Double>() to emptyList()
+        }
         val exampleEvalResults = mutableListOf<Map<String, Double>>()
         val pooledEvalResults = uniqueKList.associate { k -> "Recall@$k" to 0.0 }.toMutableMap()
+        val maxK = uniqueKList.last()
 
         for ((exampleGoldDocs, exampleRetrievedDocs) in goldDocs.zip(retrievedDocs)) {
-            val maxK = uniqueKList.last()
             if (exampleRetrievedDocs.size < maxK) {
                 logger.warn {
                     "Length of retrieved docs (${exampleRetrievedDocs.size}) is smaller than largest topk for recall score ($maxK)"

@@ -105,7 +105,7 @@ class EvalUtilsTest {
     @Test
     fun `normalizeAnswer should handle consecutive punctuation`() {
         val input = "Hello!!!...World???"
-        val expected = "hello world"
+        val expected = "helloworld"
         assertEquals(expected, normalizeAnswer(input))
     }
 

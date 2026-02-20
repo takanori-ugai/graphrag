@@ -158,16 +158,18 @@ class QAExactMatchTest {
 
     @Test
     fun `calculateMetricScores should handle multiple examples`() {
-        val goldAnswers = listOf(
-            listOf("hello"),
-            listOf("world"),
-            listOf("test"),
-        )
-        val predictedAnswers = listOf(
-            "hello",
-            "world",
-            "test",
-        )
+        val goldAnswers =
+            listOf(
+                listOf("hello"),
+                listOf("world"),
+                listOf("test"),
+            )
+        val predictedAnswers =
+            listOf(
+                "hello",
+                "world",
+                "test",
+            )
         val aggregationFn: (List<Double>) -> Double = { it.maxOrNull() ?: 0.0 }
 
         val (pooled, perExample) = evaluator.calculateMetricScores(goldAnswers, predictedAnswers, aggregationFn)
@@ -181,18 +183,20 @@ class QAExactMatchTest {
 
     @Test
     fun `calculateMetricScores should compute average across multiple examples`() {
-        val goldAnswers = listOf(
-            listOf("match"),
-            listOf("no match"),
-            listOf("another match"),
-            listOf("also no match"),
-        )
-        val predictedAnswers = listOf(
-            "match",
-            "different",
-            "another match",
-            "wrong",
-        )
+        val goldAnswers =
+            listOf(
+                listOf("match"),
+                listOf("no match"),
+                listOf("another match"),
+                listOf("also no match"),
+            )
+        val predictedAnswers =
+            listOf(
+                "match",
+                "different",
+                "another match",
+                "wrong",
+            )
         val aggregationFn: (List<Double>) -> Double = { it.maxOrNull() ?: 0.0 }
 
         val (pooled, perExample) = evaluator.calculateMetricScores(goldAnswers, predictedAnswers, aggregationFn)

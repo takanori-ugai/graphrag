@@ -63,8 +63,8 @@ class RetrievalRecallTest {
         assertEquals(1.0, pooled["Recall@5"])
 
         assertEquals(1, perExample.size)
-        assertEquals(0.3333, perExample[0]["Recall@1"])
-        assertEquals(0.6667, perExample[0]["Recall@3"])
+        assertEquals(1.0 / 3.0, perExample[0]["Recall@1"]!!, 1e-6)
+        assertEquals(2.0 / 3.0, perExample[0]["Recall@3"]!!, 1e-6)
         assertEquals(1.0, perExample[0]["Recall@5"])
     }
 
@@ -107,21 +107,23 @@ class RetrievalRecallTest {
         // Only 2 docs retrieved, can check at most 2, recall = 2/3 ≈ 0.6667
         assertEquals(0.6667, pooled["Recall@5"])
         assertEquals(1, perExample.size)
-        assertEquals(0.6667, perExample[0]["Recall@5"])
+        assertEquals(2.0 / 3.0, perExample[0]["Recall@5"]!!, 1e-6)
     }
 
     @Test
     fun `calculateMetricScores should handle multiple examples`() {
-        val goldDocs = listOf(
-            listOf("doc1", "doc2"),
-            listOf("doc3", "doc4"),
-            listOf("doc5", "doc6"),
-        )
-        val retrievedDocs = listOf(
-            listOf("doc1", "doc2", "doc7"),
-            listOf("doc3", "doc8", "doc9"),
-            listOf("doc10", "doc11", "doc12"),
-        )
+        val goldDocs =
+            listOf(
+                listOf("doc1", "doc2"),
+                listOf("doc3", "doc4"),
+                listOf("doc5", "doc6"),
+            )
+        val retrievedDocs =
+            listOf(
+                listOf("doc1", "doc2", "doc7"),
+                listOf("doc3", "doc8", "doc9"),
+                listOf("doc10", "doc11", "doc12"),
+            )
         val kList = listOf(3)
 
         val (pooled, perExample) = evaluator.calculateMetricScores(goldDocs, retrievedDocs, kList)
@@ -189,7 +191,7 @@ class RetrievalRecallTest {
 
         assertEquals(0.3333, pooled["Recall@1"])
         assertEquals(1, perExample.size)
-        assertEquals(0.3333, perExample[0]["Recall@1"])
+        assertEquals(1.0 / 3.0, perExample[0]["Recall@1"]!!, 1e-6)
     }
 
     @Test
@@ -274,7 +276,7 @@ class RetrievalRecallTest {
         // Top 1 doc is doc1, which is in gold set, so 1/3 ≈ 0.3333
         assertEquals(0.3333, pooled["Recall@1"])
         assertEquals(1, perExample.size)
-        assertEquals(0.3333, perExample[0]["Recall@1"])
+        assertEquals(1.0 / 3.0, perExample[0]["Recall@1"]!!, 1e-6)
     }
 
     @Test
@@ -293,18 +295,20 @@ class RetrievalRecallTest {
 
     @Test
     fun `calculateMetricScores should handle mixed results across examples`() {
-        val goldDocs = listOf(
-            listOf("doc1"),
-            listOf("doc2"),
-            listOf("doc3"),
-            listOf("doc4"),
-        )
-        val retrievedDocs = listOf(
-            listOf("doc1"),
-            listOf("doc5"),
-            listOf("doc3"),
-            listOf("doc6"),
-        )
+        val goldDocs =
+            listOf(
+                listOf("doc1"),
+                listOf("doc2"),
+                listOf("doc3"),
+                listOf("doc4"),
+            )
+        val retrievedDocs =
+            listOf(
+                listOf("doc1"),
+                listOf("doc5"),
+                listOf("doc3"),
+                listOf("doc6"),
+            )
         val kList = listOf(1)
 
         val (pooled, perExample) = evaluator.calculateMetricScores(goldDocs, retrievedDocs, kList)
@@ -329,11 +333,11 @@ class RetrievalRecallTest {
         // At k=2: only doc6, doc1 -> 1/5 = 0.2
         // At k=4: doc6, doc1, doc7, doc2 -> 2/5 = 0.4
         // At k=6: doc6, doc1, doc7, doc2, doc8, doc3 -> 3/5 = 0.6
-        // At k=8: all -> 4/5 = 0.8
+        // At k=8: all -> 5/5 = 1.0
         assertEquals(0.2, pooled["Recall@2"])
         assertEquals(0.4, pooled["Recall@4"])
         assertEquals(0.6, pooled["Recall@6"])
-        assertEquals(0.8, pooled["Recall@8"])
+        assertEquals(1.0, pooled["Recall@8"])
     }
 
     @Test

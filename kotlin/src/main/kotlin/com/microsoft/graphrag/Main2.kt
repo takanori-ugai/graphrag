@@ -27,8 +27,8 @@ fun main(args: Array<String>) =
         val parsed = MusiqueArgs.parse(args)
         val apiKey = System.getenv("OPENAI_API_KEY")
         if (apiKey.isNullOrBlank()) {
-            println("OPENAI_API_KEY is not set. Please set it to run the evaluation.")
-            return@runBlocking
+            System.err.println("OPENAI_API_KEY is not set. Please set it to run the evaluation.")
+            exitProcess(1)
         }
 
         val samples = readMusiqueSamples(parsed.inputPath, parsed.limit)
@@ -154,9 +154,11 @@ private fun readMusiqueSamples(
 ): List<MusiqueSample> {
     val json = Json { ignoreUnknownKeys = true }
     val file = resolveMusiqueFile(path, "input")
-    val lines = file.readLines().filter { it.isNotBlank() }
-    val capped = if (limit != null) lines.take(limit) else lines
-    return capped.map { line -> json.decodeFromString(MusiqueSample.serializer(), line) }
+    return file.useLines { lines ->
+        val filtered = lines.filter { it.isNotBlank() }
+        val capped = if (limit != null) filtered.take(limit) else filtered
+        capped.map { line -> json.decodeFromString(MusiqueSample.serializer(), line) }.toList()
+    }
 }
 
 private fun resolveMusiqueFile(
@@ -165,8 +167,7 @@ private fun resolveMusiqueFile(
 ): File {
     val baseDir = File(".").canonicalFile
     val file = File(path).canonicalFile
-    val basePath = baseDir.path + File.separator
-    require(file.path.startsWith(basePath)) {
+    require(file.toPath().startsWith(baseDir.toPath())) {
         "Refusing to read $label outside working directory: ${file.path}"
     }
     require(file.isFile) {
@@ -230,7 +231,10 @@ private data class MusiqueArgs(
             }
 
             val input = map["input"] ?: usageAndExit("Missing required --input.")
-            val limit = map["limit"]?.toIntOrNull()
+            val limit =
+                map["limit"]?.let { raw ->
+                    raw.toIntOrNull() ?: usageAndExit("--limit must be an integer, got: $raw")
+                }
             val topK = map["top_k"]?.toIntOrNull() ?: 10
 
             return MusiqueArgs(
