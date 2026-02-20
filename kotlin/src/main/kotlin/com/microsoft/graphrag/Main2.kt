@@ -11,6 +11,7 @@ import com.microsoft.graphrag.index.defaultEmbeddingModel
 import com.microsoft.graphrag.query.BasicQueryEngine
 import com.microsoft.graphrag.query.JsonAnswerParser
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -127,6 +128,8 @@ fun main(args: Array<String>) =
                 try {
                     val normalized = normalizeModelResponse(result.answer)
                     JsonAnswerParser.parse(normalized).response.trim()
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     System.err.println("Warning: Failed to parse response for sample ${sample.id}: ${e.message}")
                     ""

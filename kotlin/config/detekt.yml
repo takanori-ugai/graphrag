@@ -7,9 +7,15 @@ style:
     maxLineLength: 140
   MagicNumber:
     active: false
+  ReturnCount:
+    active: true
+    max: 5
 
 complexity:
   active: true
+  LongMethod:
+    active: true
+    threshold: 200
   TooManyFunctions:
     active: true
     thresholdInFiles: 11

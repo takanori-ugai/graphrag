@@ -7,10 +7,15 @@ class QAF1Score {
     /**
      * Computes token-level F1 metrics for a set of question-answer predictions.
      *
-     * @param goldAnswers Per-question list of valid gold answers; each element is a list of acceptable answer strings for that question.
-     * @param predictedAnswers Predicted answer string for each question; must have the same length as `goldAnswers`.
-     * @param aggregationFn Function used to aggregate multiple F1 scores when a question has multiple gold answers (receives the list of F1 scores and returns a single aggregated value).
-     * @return A pair where the first element is a pooled metrics map containing a single entry `"F1"` with the average F1 across questions that have at least one gold answer, and the second element is a list of per-example metric maps (each map contains `"F1"` for that question).
+     * @param goldAnswers Per-question list of valid gold answers; each element is a list of acceptable
+     * answer strings for that question.
+     * @param predictedAnswers Predicted answer string for each question; must have the same length as
+     * `goldAnswers`.
+     * @param aggregationFn Function used to aggregate multiple F1 scores when a question has multiple
+     * gold answers (receives the list of F1 scores and returns a single aggregated value).
+     * @return A pair where the first element is a pooled metrics map containing a single entry `"F1"`
+     * with the average F1 across questions that have at least one gold answer, and the second element
+     * is a list of per-example metric maps (each map contains `"F1"` for that question).
      * Questions with an empty gold-answer list receive a per-example `"F1"` of `0.0` and are excluded from the pooled average.
      * @throws IllegalArgumentException if `goldAnswers` and `predictedAnswers` have different sizes.
      */
