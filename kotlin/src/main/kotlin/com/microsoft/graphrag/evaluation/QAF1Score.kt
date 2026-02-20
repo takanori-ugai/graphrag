@@ -5,14 +5,14 @@ package com.microsoft.graphrag.evaluation
  */
 class QAF1Score {
     /**
-     * Calculates F1 metrics for the provided answers.
+     * Computes token-level F1 metrics for a set of question-answer predictions.
      *
-     * @param goldAnswers List of gold answer sets, one per question (each question may have multiple valid answers)
-     * @param predictedAnswers List of predicted answers, one per question
-     * @param aggregationFn Function to aggregate multiple F1 scores when multiple gold answers exist
-     * @return Pair of (1) pooled metrics across all examples and (2) per-example metric maps
-     * Questions with empty gold answer lists receive per-example F1=0.0 but are excluded from the pooled average.
-     * @throws IllegalArgumentException if goldAnswers and predictedAnswers have different sizes
+     * @param goldAnswers Per-question list of valid gold answers; each element is a list of acceptable answer strings for that question.
+     * @param predictedAnswers Predicted answer string for each question; must have the same length as `goldAnswers`.
+     * @param aggregationFn Function used to aggregate multiple F1 scores when a question has multiple gold answers (receives the list of F1 scores and returns a single aggregated value).
+     * @return A pair where the first element is a pooled metrics map containing a single entry `"F1"` with the average F1 across questions that have at least one gold answer, and the second element is a list of per-example metric maps (each map contains `"F1"` for that question).
+     * Questions with an empty gold-answer list receive a per-example `"F1"` of `0.0` and are excluded from the pooled average.
+     * @throws IllegalArgumentException if `goldAnswers` and `predictedAnswers` have different sizes.
      */
     fun calculateMetricScores(
         goldAnswers: List<List<String>>,
@@ -23,6 +23,15 @@ class QAF1Score {
             "Length of gold answers and predicted answers should be the same."
         }
 
+        /**
+         * Computes the token-level F1 score between a gold answer and a predicted answer.
+         *
+         * The inputs are normalized and split on whitespace into tokens before computing overlap.
+         *
+         * @param gold The reference answer string.
+         * @param predicted The predicted answer string.
+         * @return The F1 score in the range 0.0 to 1.0: 1.0 indicates perfect token overlap, 0.0 indicates no overlap.
+         */
         fun computeF1(
             gold: String,
             predicted: String,

@@ -22,7 +22,20 @@ import kotlin.system.exitProcess
 /**
  * CLI entry point for running and evaluating QA over MuSiQue JSONL samples.
  */
-fun main(args: Array<String>) =
+/**
+     * CLI entry point that runs a MuSiQue QA evaluation pipeline: loads samples from a JSONL input,
+     * builds an OpenAI streaming chat model and embedding model, answers each question using an
+     * in-memory vector store per sample, collects predictions and gold answers, and prints ExactMatch
+     * and F1 aggregated scores.
+     *
+     * The program requires the OPENAI_API_KEY environment variable to be set and exits with an error
+     * if it is missing. It will skip samples with no non-blank passages and will print progress
+     * periodically.
+     *
+     * @param args Command-line arguments as passed to the JVM (expects at least `--input <path>` and
+     * optional flags such as `--limit`, `--llmName`, `--embeddingName`, and `--topK`).
+     */
+    fun main(args: Array<String>) =
     runBlocking {
         val parsed = MusiqueArgs.parse(args)
         val apiKey = System.getenv("OPENAI_API_KEY")
@@ -157,6 +170,16 @@ fun main(args: Array<String>) =
         println("F1: ${"%.4f".format(overallF1.getValue("F1"))}")
     }
 
+/**
+ * Load MuSiQue samples from a JSONL file.
+ *
+ * Reads the file resolved from [path], ignores blank lines, decodes each remaining line as a
+ * `MusiqueSample`, and optionally limits the number of samples returned.
+ *
+ * @param path Path to the JSONL input file (resolved relative to the current working directory).
+ * @param limit Optional maximum number of samples to read; pass `null` to read all samples.
+ * @return A list of decoded `MusiqueSample` objects, in the same order as the non-blank lines in the file.
+ */
 private fun readMusiqueSamples(
     path: String,
     limit: Int?,
@@ -170,6 +193,14 @@ private fun readMusiqueSamples(
     }
 }
 
+/**
+ * Resolve a filesystem path to a canonical File inside the current working directory and validate it exists as a regular file.
+ *
+ * @param path The path to the file to resolve.
+ * @param label A human-readable label used in error messages when validation fails.
+ * @return The resolved canonical File that is guaranteed to be inside the working directory and to be a file.
+ * @throws IllegalArgumentException If the resolved file is outside the working directory or does not exist / is not a file.
+ */
 private fun resolveMusiqueFile(
     path: String,
     label: String,
@@ -185,6 +216,14 @@ private fun resolveMusiqueFile(
     return file
 }
 
+/**
+ * Extracts the primary content from a model-generated response by removing common wrapper formatting.
+ *
+ * @param raw The raw response text produced by the model.
+ * @return The cleaned content: if `raw` contains a fenced code block (```), the inner block content trimmed;
+ * otherwise if it contains a JSON-like substring between the first `{` and last `}`, that substring trimmed;
+ * otherwise the trimmed original `raw`.
+ */
 private fun normalizeModelResponse(raw: String): String {
     val trimmed = raw.trim()
     if (trimmed.startsWith("```")) {
@@ -197,6 +236,12 @@ private fun normalizeModelResponse(raw: String): String {
     return if (start >= 0 && end > start) trimmed.substring(start, end + 1).trim() else trimmed
 }
 
+/**
+ * Validates that a sample identifier is non-blank and contains no path-traversal or path-separator characters.
+ *
+ * @param sampleId The sample identifier to validate.
+ * @return `true` if the identifier is non-blank and does not contain `".."`, `'/'`, or `'\'`, `false` otherwise.
+ */
 private fun isSafeSampleId(sampleId: String): Boolean {
     if (sampleId.isBlank()) return false
     if (sampleId.contains("..")) return false
@@ -234,6 +279,19 @@ private data class MusiqueArgs(
     val topK: Int,
 ) {
     companion object {
+        /**
+         * Parses command-line arguments into a MusiqueArgs instance.
+         *
+         * Accepts arguments in repeated pairs of the form `--key value`. Recognized keys:
+         * - `--input` (required): path to the MuSiQue JSONL input file.
+         * - `--limit`: optional integer cap on the number of samples to read.
+         * - `--llm_name`: optional LLM model name.
+         * - `--embedding_name`: optional embedding model name.
+         * - `--top_k`: optional integer for retrieval top-k (defaults to 10).
+         *
+         * @param args Command-line arguments in `--key value` pairs.
+         * @return A configured MusiqueArgs populated from the provided arguments.
+         */
         fun parse(args: Array<String>): MusiqueArgs {
             val map = mutableMapOf<String, String>()
             var i = 0
@@ -263,6 +321,13 @@ private data class MusiqueArgs(
             )
         }
 
+        /**
+         * Prints an optional error message and usage instructions to standard error, then terminates the process.
+         *
+         * If `reason` is provided it is printed before the usage text. The function always exits the JVM with status code 2.
+         *
+         * @param reason Optional error message to print before the usage instructions.
+         */
         private fun usageAndExit(reason: String? = null): Nothing {
             if (reason != null) {
                 System.err.println(reason)
