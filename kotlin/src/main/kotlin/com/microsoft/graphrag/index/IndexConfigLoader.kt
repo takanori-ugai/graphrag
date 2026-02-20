@@ -44,7 +44,8 @@ object IndexConfigLoader {
         overrideOutputDir: Path? = null,
     ): IndexConfig {
         val resolvedRoot = root.toAbsolutePath().normalize()
-        val settingsPath = (configPath ?: resolvedRoot.resolve("settings.yaml")).toAbsolutePath().normalize()
+        val settingsPath =
+            (configPath ?: resolvedRoot.resolve("settings.yaml")).toAbsolutePath().normalize()
 
         val raw =
             if (Files.exists(settingsPath)) {
@@ -90,6 +91,14 @@ object IndexConfigLoader {
         )
     }
 
+    /**
+     * Resolve a base directory path using an optional configured value, falling back to a default when absent.
+     *
+     * @param root The base directory to resolve relative `configured` paths against.
+     * @param configured Optional directory string; if blank this function uses `fallback`. If absolute, it is used as-is; otherwise it is resolved against `root`.
+     * @param fallback Directory name to use when `configured` is blank.
+     * @return The resolved, normalized `Path` to use as the base directory.
+     */
     private fun resolveBaseDir(
         root: Path,
         configured: String?,
