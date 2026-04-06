@@ -27,6 +27,8 @@ dtypes
 ints
 genid
 isinstance
+ismatch
+ftype
 
 # Azure
 abfs
@@ -131,6 +133,7 @@ retryer
 agenerate
 dropna
 notna
+upserted
 
 # LLM Terms
 AOAI
