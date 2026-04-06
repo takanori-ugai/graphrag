@@ -1,0 +1,6 @@
+GraphRAG is a retrieval system that builds a knowledge graph from text. It extracts entities like Microsoft and
+OpenAI, then links them through relationships such as partnership and research collaboration. In 2023, Microsoft
+invested in OpenAI to accelerate AI research. OpenAI builds large language models and deploys them via Azure.
+Azure provides GPU infrastructure, and GitHub Copilot is powered by OpenAI models. Satya Nadella leads Microsoft,
+while Sam Altman leads OpenAI. Together, the companies publish research papers, improve safety, and scale
+responsible AI deployments across products like Bing Chat and GitHub Copilot.

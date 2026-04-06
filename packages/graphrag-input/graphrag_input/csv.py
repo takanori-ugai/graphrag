@@ -4,12 +4,19 @@
 """A module containing 'CSVFileReader' model."""
 
 import csv
+import io
 import logging
+import sys
 
 from graphrag_input.structured_file_reader import StructuredFileReader
 from graphrag_input.text_document import TextDocument
 
 logger = logging.getLogger(__name__)
+
+try:
+    csv.field_size_limit(sys.maxsize)
+except OverflowError:
+    csv.field_size_limit(100 * 1024 * 1024)
 
 
 class CSVFileReader(StructuredFileReader):
@@ -33,6 +40,6 @@ class CSVFileReader(StructuredFileReader):
         """
         file = await self._storage.get(path, encoding=self._encoding)
 
-        reader = csv.DictReader(file.splitlines())
+        reader = csv.DictReader(io.StringIO(file))
         rows = list(reader)
         return await self.process_data_columns(rows, path)

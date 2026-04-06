@@ -1,5 +1,58 @@
 # Changelog
+
 Note: version releases in the 0.x.y range may introduce breaking changes.
+
+## 3.0.8
+
+- patch: bump nltk to resolve [CVE-2025-14009](https://github.com/advisories/GHSA-7p94-766c-hgjp)
+
+## 3.0.7
+
+- patch: Pin litellm dependency.
+- patch: reconfigure vector store size by embedding model
+
+## 3.0.6
+
+- patch: extract_graph_nlp streaming
+- patch: filter phantom relationships in graph
+
+## 3.0.5
+
+- patch: fix csv reader
+- patch: update version
+- patch: vector load_documents in batches
+
+## 3.0.4
+
+- patch: fix versions release
+
+## 3.0.3
+
+- patch: Add filtering, timestamp explosion, insert/count/remove/update operations to vector store API. Add top-level vector_size config to VectorStoreConfig.
+- patch: add csv table smoke tests
+- patch: add manual release instructions
+- patch: add streamming to the two first workflows
+- patch: add support for cosmosdb output
+- patch: create_communities streaming
+- patch: create_final_documents streaming
+- patch: create_final_text_units streaming
+- patch: finalize_graph streaming
+- patch: generate_text_embeddings streaming
+- patch: write stats.json per workflow
+
+## 3.0.2
+
+- patch: Add CSVTableProvider
+- patch: Add DataReader class for typed dataframe loading from TableProvider across indexing workflows and query CLI
+- patch: Add TableProvider abstraction for table-based storage operations
+- patch: Add async iterator support to InputReader and use it in load_input_documents and load_update_documents workflows.
+- patch: Add table provider factory.
+- patch: Fix missed py 3.13.
+- patch: Move document ID, human_readable_id, and raw_data initialization from create_final_documents into load_input_documents and load_update_documents.
+- patch: Remove NetworkX dependency from graph utilities; move to DataFrame-based implementations in graphrag.graphs package.
+- patch: Remove unnecessary response format check. Fixes: #2203
+- patch: add profiling to get memory usage
+- patch: update notebooks
 
 ## 3.0.1
 
@@ -10,16 +63,16 @@ Note: version releases in the 0.x.y range may introduce breaking changes.
 - major: Monorepo restructure
 
   New Packages:
-    - graphrag-cache
-    - graphrag-chunking
-    - graphrag-common
-    - graphrag-input
-    - graphrag-llm
-    - graphrag-storage
-    - graphrag-vectors
+  - graphrag-cache
+  - graphrag-chunking
+  - graphrag-common
+  - graphrag-input
+  - graphrag-llm
+  - graphrag-storage
+  - graphrag-vectors
 
   Changes:
-    - New config: run graphrag init --force to reinitialize config with new layout and options.
+  - New config: run graphrag init --force to reinitialize config with new layout and options.
 
 ## 2.7.1
 
