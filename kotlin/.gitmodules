@@ -1,0 +1,3 @@
+[submodule "eval/ragas"]
+	path = eval/ragas
+	url = git@github.com:takanori-ugai/ragas.git
