@@ -99,7 +99,7 @@ dependencies {
     implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.17.2")
 
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit:2.3.0")
-    testImplementation("io.mockk:mockk:1.13.9")
+    testImplementation("io.mockk:mockk:1.14.9")
 }
 
 tasks {
