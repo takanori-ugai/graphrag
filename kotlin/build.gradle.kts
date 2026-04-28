@@ -18,7 +18,7 @@ detekt {
 group = "com.graphrag"
 version = "0.0.1"
 
-val ktorVersion = "2.3.12"
+val ktorVersion = "3.4.3"
 val koinVersion = "4.2.1"
 val javafxVersion = "21.0.5"
 val jgraphtVersion = "1.5.2"
