@@ -66,7 +66,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0")
     implementation("io.github.oshai:kotlin-logging-jvm:5.1.0")
     implementation("com.auth0:java-jwt:4.5.0")
-    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.17.2")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.21.3")
     implementation("org.jgrapht:jgrapht-core:$jgraphtVersion")
     implementation("blue.strategic.parquet:parquet-floor:1.65")
     implementation("nl.cwts:networkanalysis:$networkAnalysisVersion")
