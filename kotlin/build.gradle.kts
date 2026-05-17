@@ -93,8 +93,8 @@ dependencies {
     implementation("com.knuddels:jtokkit:1.1.0")
 
     // MongoDB
-    implementation("org.mongodb:mongodb-driver-kotlin-coroutine:5.1.0")
-    implementation("org.mongodb:bson-kotlinx:5.1.0")
+    implementation("org.mongodb:mongodb-driver-kotlin-coroutine:5.7.0")
+    implementation("org.mongodb:bson-kotlinx:5.7.0")
     implementation("org.neo4j.driver:neo4j-java-driver:6.0.5")
     implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.17.2")
 
