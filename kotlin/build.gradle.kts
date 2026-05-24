@@ -68,7 +68,7 @@ dependencies {
     implementation("com.auth0:java-jwt:4.5.0")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.21.3")
     implementation("org.jgrapht:jgrapht-core:$jgraphtVersion")
-    implementation("blue.strategic.parquet:parquet-floor:1.65")
+    implementation("blue.strategic.parquet:parquet-floor:2.1")
     implementation("nl.cwts:networkanalysis:$networkAnalysisVersion")
     implementation("com.github.haifengl:smile-base:$smileVersion")
     implementation("com.github.haifengl:smile-core:$smileVersion")
