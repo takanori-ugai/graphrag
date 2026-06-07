@@ -63,7 +63,7 @@ dependencies {
     implementation("io.ktor:ktor-server-cors")
     implementation("ch.qos.logback:logback-classic:1.5.32")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
     implementation("io.github.oshai:kotlin-logging-jvm:8.0.02")
     implementation("com.auth0:java-jwt:4.5.0")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.21.3")
