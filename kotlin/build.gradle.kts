@@ -73,6 +73,7 @@ dependencies {
     implementation("nl.cwts:networkanalysis:$networkAnalysisVersion")
     implementation("com.github.haifengl:smile-base:$smileVersion")
     implementation("com.github.haifengl:smile-core:$smileVersion")
+    implementation("io.ragas:ragas-kotlin:0.0.1")
 
     // Koin for Ktor
     implementation("io.insert-koin:koin-ktor:$koinVersion")
@@ -122,6 +123,10 @@ tasks {
             },
         )
         classpath = sourceSets.main.get().runtimeClasspath
+    }
+
+    shadowJar {
+        isZip64 = true
     }
 }
 
