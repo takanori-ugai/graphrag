@@ -1,10 +1,11 @@
 package com.microsoft.graphrag.index
 
-import com.fasterxml.jackson.databind.ObjectMapper
 import dev.langchain4j.data.message.ChatMessage
 import dev.langchain4j.data.message.UserMessage
 import dev.langchain4j.model.openai.OpenAiChatModel
 import io.github.oshai.kotlinlogging.KotlinLogging
+import tools.jackson.databind.ObjectMapper
+import tools.jackson.module.kotlin.jacksonObjectMapper
 
 /**
  * Extracts claims from document chunks using an LLM.
@@ -16,7 +17,7 @@ import io.github.oshai.kotlinlogging.KotlinLogging
 class ClaimsWorkflow(
     private val chatModel: OpenAiChatModel,
     private val prompts: PromptRepository = PromptRepository(),
-    private val objectMapper: ObjectMapper = ObjectMapper().findAndRegisterModules(),
+    private val objectMapper: ObjectMapper = jacksonObjectMapper(),
 ) {
     /**
      * Extracts claims from the provided document chunks.

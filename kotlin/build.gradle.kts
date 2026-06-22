@@ -26,6 +26,7 @@ val parquetVersion = "1.13.1"
 val networkAnalysisVersion = "1.3.0"
 val smileVersion = "4.4.2"
 val langchain4jVersion = "1.16.2"
+val jacksonVersion = "3.1.4"
 val osName = System.getProperty("os.name").lowercase()
 val archName = System.getProperty("os.arch").lowercase()
 val javafxPlatform =
@@ -66,7 +67,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
     implementation("io.github.oshai:kotlin-logging-jvm:8.0.4")
     implementation("com.auth0:java-jwt:4.5.2")
-    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.21.3")
+    implementation("tools.jackson.module:jackson-module-kotlin:$jacksonVersion")
     implementation("org.jgrapht:jgrapht-core:$jgraphtVersion")
     implementation("blue.strategic.parquet:parquet-floor:2.1")
     implementation("nl.cwts:networkanalysis:$networkAnalysisVersion")
@@ -96,7 +97,7 @@ dependencies {
     implementation("org.mongodb:mongodb-driver-kotlin-coroutine:5.8.0")
     implementation("org.mongodb:bson-kotlinx:5.8.0")
     implementation("org.neo4j.driver:neo4j-java-driver:6.2.0")
-    implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.21.4")
+    implementation("tools.jackson.dataformat:jackson-dataformat-yaml:$jacksonVersion")
 
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit:2.4.0")
     testImplementation("io.mockk:mockk:1.14.9")

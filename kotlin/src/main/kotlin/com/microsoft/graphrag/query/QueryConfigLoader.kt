@@ -2,10 +2,6 @@ package com.microsoft.graphrag.query
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonProperty
-import com.fasterxml.jackson.databind.DeserializationFeature
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.dataformat.yaml.YAMLFactory
-import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import com.microsoft.graphrag.prompts.query.QUESTION_SYSTEM_PROMPT
 import com.microsoft.graphrag.query.DriftSearchEngine.Companion.DEFAULT_DRIFT_PRIMER_PROMPT
 import com.microsoft.graphrag.query.DriftSearchEngine.Companion.DEFAULT_DRIFT_REDUCE_PROMPT
@@ -13,6 +9,11 @@ import com.microsoft.graphrag.query.GlobalSearchEngine.Companion.DEFAULT_GENERAL
 import com.microsoft.graphrag.query.GlobalSearchEngine.Companion.DEFAULT_MAP_SYSTEM_PROMPT
 import com.microsoft.graphrag.query.GlobalSearchEngine.Companion.DEFAULT_REDUCE_SYSTEM_PROMPT
 import io.github.oshai.kotlinlogging.KotlinLogging
+import tools.jackson.databind.DeserializationFeature
+import tools.jackson.databind.ObjectMapper
+import tools.jackson.dataformat.yaml.YAMLFactory
+import tools.jackson.dataformat.yaml.YAMLMapper
+import tools.jackson.module.kotlin.kotlinModule
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -177,9 +178,11 @@ object QueryConfigLoader {
     private val logger = KotlinLogging.logger {}
 
     private val mapper: ObjectMapper =
-        ObjectMapper(YAMLFactory())
-            .registerKotlinModule()
+        YAMLMapper
+            .builder(YAMLFactory())
+            .addModule(kotlinModule {})
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+            .build()
 
     /**
      * Builds a QueryConfig for the given project root by loading and merging configuration from a settings file.
