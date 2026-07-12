@@ -19,7 +19,7 @@ group = "com.graphrag"
 version = "0.0.1"
 
 val ktorVersion = "3.5.1"
-val koinVersion = "4.2.1"
+val koinVersion = "4.2.2"
 val javafxVersion = "21.0.5"
 val jgraphtVersion = "1.5.3"
 val parquetVersion = "1.13.1"
