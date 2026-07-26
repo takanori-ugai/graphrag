@@ -66,7 +66,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
     implementation("io.github.oshai:kotlin-logging-jvm:8.0.4")
-    implementation("com.auth0:java-jwt:4.5.2")
+    implementation("com.auth0:java-jwt:4.6.0")
     implementation("tools.jackson.module:jackson-module-kotlin:$jacksonVersion")
     implementation("org.jgrapht:jgrapht-core:$jgraphtVersion")
     implementation("blue.strategic.parquet:parquet-floor:2.1")
