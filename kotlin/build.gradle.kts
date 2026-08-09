@@ -96,7 +96,7 @@ dependencies {
     // MongoDB
     implementation("org.mongodb:mongodb-driver-kotlin-coroutine:5.9.1")
     implementation("org.mongodb:bson-kotlinx:5.9.1")
-    implementation("org.neo4j.driver:neo4j-java-driver:6.2.0")
+    implementation("org.neo4j.driver:neo4j-java-driver:6.2.1")
     implementation("tools.jackson.dataformat:jackson-dataformat-yaml:$jacksonVersion")
 
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit:2.4.10")
