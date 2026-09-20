@@ -99,7 +99,7 @@ dependencies {
     implementation("org.neo4j.driver:neo4j-java-driver:6.2.1")
     implementation("tools.jackson.dataformat:jackson-dataformat-yaml:$jacksonVersion")
 
-    testImplementation("org.jetbrains.kotlin:kotlin-test-junit:2.4.10")
+    testImplementation("org.jetbrains.kotlin:kotlin-test-junit:2.4.20")
     testImplementation("io.mockk:mockk:1.14.11")
 }
 
