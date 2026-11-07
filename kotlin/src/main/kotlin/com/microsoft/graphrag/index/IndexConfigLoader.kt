@@ -1,11 +1,12 @@
 package com.microsoft.graphrag.index
 
 import com.fasterxml.jackson.annotation.JsonProperty
-import com.fasterxml.jackson.databind.DeserializationFeature
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.dataformat.yaml.YAMLFactory
-import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import io.github.oshai.kotlinlogging.KotlinLogging
+import tools.jackson.databind.DeserializationFeature
+import tools.jackson.databind.ObjectMapper
+import tools.jackson.dataformat.yaml.YAMLFactory
+import tools.jackson.dataformat.yaml.YAMLMapper
+import tools.jackson.module.kotlin.kotlinModule
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
@@ -26,9 +27,11 @@ object IndexConfigLoader {
     private val logger = KotlinLogging.logger {}
 
     private val mapper: ObjectMapper =
-        ObjectMapper(YAMLFactory())
-            .registerKotlinModule()
+        YAMLMapper
+            .builder(YAMLFactory())
+            .addModule(kotlinModule {})
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+            .build()
 
     /**
      * Loads configuration from `settings.yaml` (or an explicit config path) and resolves directories.

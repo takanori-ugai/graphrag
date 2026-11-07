@@ -2,12 +2,12 @@ import org.jlleitschuh.gradle.ktlint.reporter.ReporterType
 import java.io.File
 
 plugins {
-    kotlin("jvm") version "2.3.0"
+    kotlin("jvm") version "2.4.21"
     application
-    id("com.gradleup.shadow") version "9.2.0"
-    kotlin("plugin.serialization") version "2.3.0"
-    id("org.jlleitschuh.gradle.ktlint") version "14.0.1"
-    id("io.gitlab.arturbosch.detekt") version "1.23.6"
+    id("com.gradleup.shadow") version "9.6.1"
+    kotlin("plugin.serialization") version "2.4.21"
+    id("org.jlleitschuh.gradle.ktlint") version "14.2.0"
+    id("io.gitlab.arturbosch.detekt") version "1.23.8"
 }
 
 detekt {
@@ -18,14 +18,15 @@ detekt {
 group = "com.graphrag"
 version = "0.0.1"
 
-val ktorVersion = "2.3.12"
-val koinVersion = "3.5.6"
+val ktorVersion = "3.6.1"
+val koinVersion = "4.2.2"
 val javafxVersion = "21.0.5"
-val jgraphtVersion = "1.5.2"
+val jgraphtVersion = "1.5.3"
 val parquetVersion = "1.13.1"
 val networkAnalysisVersion = "1.3.0"
-val smileVersion = "4.4.0"
-val langchain4jVersion = "1.10.0"
+val smileVersion = "4.4.2"
+val langchain4jVersion = "1.22.0"
+val jacksonVersion = "3.2.4"
 val osName = System.getProperty("os.name").lowercase()
 val archName = System.getProperty("os.arch").lowercase()
 val javafxPlatform =
@@ -61,14 +62,14 @@ dependencies {
     implementation("io.ktor:ktor-serialization-kotlinx-json")
     implementation("io.ktor:ktor-server-swagger")
     implementation("io.ktor:ktor-server-cors")
-    implementation("ch.qos.logback:logback-classic:1.5.13")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0")
-    implementation("io.github.oshai:kotlin-logging-jvm:5.1.0")
-    implementation("com.auth0:java-jwt:4.5.0")
-    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.17.2")
+    implementation("ch.qos.logback:logback-classic:1.6.5")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.12.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.12.0")
+    implementation("io.github.oshai:kotlin-logging-jvm:8.0.4")
+    implementation("com.auth0:java-jwt:4.6.2")
+    implementation("tools.jackson.module:jackson-module-kotlin:$jacksonVersion")
     implementation("org.jgrapht:jgrapht-core:$jgraphtVersion")
-    implementation("blue.strategic.parquet:parquet-floor:1.51")
+    implementation("blue.strategic.parquet:parquet-floor:2.4")
     implementation("nl.cwts:networkanalysis:$networkAnalysisVersion")
     implementation("com.github.haifengl:smile-base:$smileVersion")
     implementation("com.github.haifengl:smile-core:$smileVersion")
@@ -78,13 +79,13 @@ dependencies {
     implementation("io.insert-koin:koin-ktor:$koinVersion")
     implementation("io.insert-koin:koin-core:$koinVersion")
     implementation("io.insert-koin:koin-logger-slf4j:$koinVersion")
-    implementation("info.picocli:picocli:4.7.6")
+    implementation("info.picocli:picocli:4.7.7")
 
     // LangChain4j dependencies
     implementation("dev.langchain4j:langchain4j:$langchain4jVersion")
     implementation("dev.langchain4j:langchain4j-open-ai:$langchain4jVersion")
     implementation("dev.langchain4j:langchain4j-ollama:$langchain4jVersion")
-    implementation("dev.langchain4j:langchain4j-community-neo4j:1.10.0-beta18")
+    implementation("dev.langchain4j:langchain4j-community-neo4j:1.22.0-beta32")
 
     implementation("org.openjfx:javafx-base:$javafxVersion:$javafxPlatform")
     implementation("org.openjfx:javafx-graphics:$javafxVersion:$javafxPlatform")
@@ -94,13 +95,13 @@ dependencies {
     implementation("com.knuddels:jtokkit:1.1.0")
 
     // MongoDB
-    implementation("org.mongodb:mongodb-driver-kotlin-coroutine:5.1.0")
-    implementation("org.mongodb:bson-kotlinx:5.1.0")
-    implementation("org.neo4j.driver:neo4j-java-driver:5.20.0")
-    implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.17.2")
+    implementation("org.mongodb:mongodb-driver-kotlin-coroutine:5.14.0")
+    implementation("org.mongodb:bson-kotlinx:5.14.0")
+    implementation("org.neo4j.driver:neo4j-java-driver:6.3.0")
+    implementation("tools.jackson.dataformat:jackson-dataformat-yaml:$jacksonVersion")
 
-    testImplementation("org.jetbrains.kotlin:kotlin-test-junit:2.3.0")
-    testImplementation("io.mockk:mockk:1.13.9")
+    testImplementation("org.jetbrains.kotlin:kotlin-test-junit:2.4.21")
+    testImplementation("io.mockk:mockk:1.14.11")
 }
 
 tasks {
