@@ -69,7 +69,7 @@ dependencies {
     implementation("com.auth0:java-jwt:4.6.2")
     implementation("tools.jackson.module:jackson-module-kotlin:$jacksonVersion")
     implementation("org.jgrapht:jgrapht-core:$jgraphtVersion")
-    implementation("blue.strategic.parquet:parquet-floor:2.4")
+    implementation("blue.strategic.parquet:parquet-floor:2.5")
     implementation("nl.cwts:networkanalysis:$networkAnalysisVersion")
     implementation("com.github.haifengl:smile-base:$smileVersion")
     implementation("com.github.haifengl:smile-core:$smileVersion")
